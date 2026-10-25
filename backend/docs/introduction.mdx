@@ -1,0 +1,21 @@
+---
+title: "Introduction"
+description: "Backend API for the Secure Identity Wallet: authentication, identity documents and native wallet passes."
+---
+
+The Secure Identity Wallet API serves the Flutter mobile app and the React admin portal.
+
+## Stack
+
+- NestJS 12 (ESM) on Express
+- `better-auth` for sessions, mounted at `/api/auth`
+- SQLite in WAL mode through Drizzle ORM
+
+## Available now
+
+| Area | Endpoints |
+| --- | --- |
+| Authentication | `/api/auth/sign-up/email`, `/api/auth/sign-in/email`, `/api/auth/get-session`, `/api/auth/sign-out` |
+| Service | `GET /api/health`, `GET /api/me` |
+
+The database schema already contains the `identity_document` table. Endpoints that fetch documents and generate native passes are added in a later phase and are not documented here yet.

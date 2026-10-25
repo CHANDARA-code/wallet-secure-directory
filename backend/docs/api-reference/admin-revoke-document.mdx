@@ -1,0 +1,28 @@
+---
+title: "Revoke document"
+api: "POST /api/admin/documents/:id/revoke"
+description: "Revoke an issued identity document. Idempotent."
+authMethod: "bearer"
+---
+
+Requires admin role (`session.user.role === 'admin'`). Revoking an already-revoked document is idempotent. Returns `404` if document ID is not found.
+
+<ParamField path="id" type="string" required>
+  Document unique identifier.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "id": "c1f7363f-91cb-4df7-87a4-3754e38e55e0",
+  "userId": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+  "userEmail": "sok.dara@example.com",
+  "type": "driving_license",
+  "documentNumber": "DL-0123456789",
+  "status": "revoked",
+  "issuedAt": "2026-01-15T00:00:00.000Z",
+  "expiresAt": "2036-01-14T23:59:59.999Z",
+  "revokedAt": "2026-10-25T11:00:00.000Z"
+}
+```
+</ResponseExample>

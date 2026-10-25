@@ -1,0 +1,36 @@
+---
+title: "List users"
+api: "GET /api/admin/users"
+description: "List users with their active document count and search filter."
+authMethod: "bearer"
+---
+
+Requires admin role (`session.user.role === 'admin'`). Returns `403` for non-admin users and `401` for unauthenticated requests.
+
+<ParamField query="limit" type="number" default="20">
+  Number of results to return (between 1 and 100).
+</ParamField>
+<ParamField query="offset" type="number" default="0">
+  Result offset (0 or greater).
+</ParamField>
+<ParamField query="q" type="string">
+  Case-insensitive search query matching name or email.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "items": [
+    {
+      "id": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+      "name": "Sok Dara",
+      "email": "sok.dara@example.com",
+      "role": "user",
+      "createdAt": "2026-10-25T10:58:43.408Z",
+      "documentCount": 1
+    }
+  ],
+  "total": 1
+}
+```
+</ResponseExample>

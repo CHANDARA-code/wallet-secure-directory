@@ -1,0 +1,21 @@
+---
+title: "Get Apple Wallet pass"
+api: "GET /api/documents/:id/pass/apple"
+description: "Download Apple Wallet pass package (.pkpass) stub."
+authMethod: "bearer"
+---
+
+Requires a valid user session. Returns `401` if unauthenticated. Foreign, revoked, or non-existent documents return `404`.
+
+<ParamField path="id" type="string" required>
+  Document unique identifier.
+</ParamField>
+
+### Response
+
+- Status: `200 OK`
+- `Content-Type`: `application/vnd.apple.pkpass`
+- `Content-Disposition`: `attachment; filename="<documentNumber>.pkpass"`
+- `X-Pass-Stub`: `true`
+- `Cache-Control`: `no-store`
+- Body: A ZIP archive containing `pass.json` and `manifest.json`.

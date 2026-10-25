@@ -1,0 +1,23 @@
+---
+title: "List documents"
+api: "GET /api/documents"
+description: "List own non-revoked documents, newest first."
+authMethod: "bearer"
+---
+
+Requires a valid user session. Returns `401` if unauthenticated. All document responses carry `Cache-Control: no-store`.
+
+<ResponseExample>
+```json 200
+[
+  {
+    "id": "c1f7363f-91cb-4df7-87a4-3754e38e55e0",
+    "type": "driving_license",
+    "documentNumber": "DL-0123456789",
+    "status": "issued",
+    "issuedAt": "2026-01-15T00:00:00.000Z",
+    "expiresAt": "2036-01-14T23:59:59.999Z"
+  }
+]
+```
+</ResponseExample>

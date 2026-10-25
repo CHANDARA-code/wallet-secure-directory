@@ -1,0 +1,35 @@
+---
+title: "Get document"
+api: "GET /api/documents/:id"
+description: "Retrieve raw document JSON for client-side storage."
+authMethod: "bearer"
+---
+
+Requires a valid user session. Returns `401` if unauthenticated. Foreign, revoked, or non-existent documents return `404`. Response carries `Cache-Control: no-store`.
+
+<ParamField path="id" type="string" required>
+  Document unique identifier.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "id": "c1f7363f-91cb-4df7-87a4-3754e38e55e0",
+  "type": "driving_license",
+  "documentNumber": "DL-0123456789",
+  "issuedAt": "2026-01-15T00:00:00.000Z",
+  "expiresAt": "2036-01-14T23:59:59.999Z",
+  "data": {
+    "fullName": "Sok Dara",
+    "dateOfBirth": "1995-04-12",
+    "address": "12 Street 51, Phnom Penh",
+    "nationality": "KH",
+    "issuingAuthority": "Ministry of Public Works and Transport",
+    "licenseClasses": ["B", "C1"],
+    "restrictions": ["CORRECTIVE_LENSES"],
+    "issueDate": "2026-01-15",
+    "expiryDate": "2036-01-14"
+  }
+}
+```
+</ResponseExample>

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Secure Identity Wallet API",
+  "colors": {
+    "primary": "#C15F3C",
+    "light": "#D97B57",
+    "dark": "#A94F30"
+  },
+  "topbarLinks": [
+    {
+      "name": "Health",
+      "url": "http://localhost:3000/api/health"
+    }
+  ],
+  "api": {
+    "baseUrl": "http://localhost:3000",
+    "auth": {
+      "method": "bearer"
+    },
+    "playground": {
+      "disableProxy": true
+    }
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "authentication"
+      ]
+    },
+    {
+      "group": "Auth Endpoints",
+      "pages": [
+        "api-reference/sign-up",
+        "api-reference/sign-in",
+        "api-reference/get-session",
+        "api-reference/sign-out"
+      ]
+    },
+    {
+      "group": "Service Endpoints",
+      "pages": [
+        "api-reference/health",
+        "api-reference/me"
+      ]
+    },
+    {
+      "group": "Document Endpoints",
+      "pages": [
+        "api-reference/list-documents",
+        "api-reference/get-document",
+        "api-reference/get-apple-pass",
+        "api-reference/get-google-pass"
+      ]
+    },
+    {
+      "group": "Admin Endpoints",
+      "pages": [
+        "api-reference/admin-list-users",
+        "api-reference/admin-list-documents",
+        "api-reference/admin-issue-document",
+        "api-reference/admin-revoke-document"
+      ]
+    }
+  ],
+  "footerSocials": {},
+  "favicon": "/favicon.svg"
+}

@@ -1,0 +1,35 @@
+---
+title: "Sign up"
+api: "POST /api/auth/sign-up/email"
+description: "Create a user with email and password."
+---
+
+<ParamField body="name" type="string" required>
+  Display name.
+</ParamField>
+<ParamField body="email" type="string" required>
+  Unique email address.
+</ParamField>
+<ParamField body="password" type="string" required>
+  8 to 128 characters.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "token": "l62A4REX7cZE2WD2va5qLnXIYdwvSnVK",
+  "user": {
+    "id": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+    "name": "Test User",
+    "email": "t1@example.com",
+    "emailVerified": false,
+    "image": null,
+    "role": "user",
+    "createdAt": "2026-10-25T10:58:43.408Z",
+    "updatedAt": "2026-10-25T10:58:43.408Z"
+  }
+}
+```
+</ResponseExample>
+
+The response also carries the `set-auth-token` header and the session cookie.

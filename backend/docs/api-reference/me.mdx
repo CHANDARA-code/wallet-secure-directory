@@ -1,0 +1,25 @@
+---
+title: "Current user"
+api: "GET /api/me"
+description: "Return the authenticated user."
+authMethod: "bearer"
+---
+
+Requires a valid session. Returns `401` otherwise.
+
+<ResponseExample>
+```json 200
+{
+  "user": {
+    "id": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+    "name": "Test User",
+    "email": "t1@example.com",
+    "emailVerified": false,
+    "image": null,
+    "role": "user",
+    "createdAt": "2026-10-25T10:58:43.408Z",
+    "updatedAt": "2026-10-25T10:58:43.408Z"
+  }
+}
+```
+</ResponseExample>

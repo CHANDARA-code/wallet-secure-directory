@@ -1,0 +1,29 @@
+---
+title: "Authentication"
+description: "Session handling for web and mobile clients."
+---
+
+Authentication is handled by `better-auth` with email and password.
+
+## Web clients
+
+Sign-in sets an `HttpOnly` session cookie named `better-auth.session_token`. Send requests with `credentials: "include"` from an origin listed in `TRUSTED_ORIGINS`. Requests from other origins are rejected with `403`.
+
+## Mobile clients
+
+Sign-in and sign-up responses include a `set-auth-token` header. Store the value in the platform keystore and send it on later requests:
+
+```http
+Authorization: Bearer <set-auth-token value>
+```
+
+## Roles
+
+Every user has a `role` of `user` or `admin`. The role cannot be set through sign-up; it defaults to `user`.
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `401` | Missing, invalid or expired session, or wrong credentials |
+| `403` | Request origin is not trusted |

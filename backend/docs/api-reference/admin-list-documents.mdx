@@ -1,0 +1,39 @@
+---
+title: "List documents (Admin)"
+api: "GET /api/admin/documents"
+description: "List all identity documents with optional user filter."
+authMethod: "bearer"
+---
+
+Requires admin role (`session.user.role === 'admin'`). Returns `403` for non-admin users and `401` for unauthenticated requests.
+
+<ParamField query="limit" type="number" default="20">
+  Number of results to return (between 1 and 100).
+</ParamField>
+<ParamField query="offset" type="number" default="0">
+  Result offset (0 or greater).
+</ParamField>
+<ParamField query="userId" type="string">
+  Filter documents by user ID.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "items": [
+    {
+      "id": "c1f7363f-91cb-4df7-87a4-3754e38e55e0",
+      "userId": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+      "userEmail": "sok.dara@example.com",
+      "type": "driving_license",
+      "documentNumber": "DL-0123456789",
+      "status": "issued",
+      "issuedAt": "2026-01-15T00:00:00.000Z",
+      "expiresAt": "2036-01-14T23:59:59.999Z",
+      "revokedAt": null
+    }
+  ],
+  "total": 1
+}
+```
+</ResponseExample>

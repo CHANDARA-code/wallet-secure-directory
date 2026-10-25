@@ -1,0 +1,14 @@
+---
+title: "Sign in"
+api: "POST /api/auth/sign-in/email"
+description: "Create a session with email and password."
+---
+
+<ParamField body="email" type="string" required>
+  Account email.
+</ParamField>
+<ParamField body="password" type="string" required>
+  Account password.
+</ParamField>
+
+Returns `200` with the user and sets the session cookie and `set-auth-token` header. Wrong credentials return `401`.

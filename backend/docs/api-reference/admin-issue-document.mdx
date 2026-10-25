@@ -1,0 +1,34 @@
+---
+title: "Issue document"
+api: "POST /api/admin/documents"
+description: "Issue a new identity document to a user."
+authMethod: "bearer"
+---
+
+Requires admin role (`session.user.role === 'admin'`). Validates `data` strictly (unknown keys rejected). Real calendar dates required and `expiryDate` must be after `issueDate`. Returns `404` if `userId` is unknown, and `400` with field messages if payload is invalid.
+
+<ParamField body="userId" type="string" required>
+  Target user ID.
+</ParamField>
+<ParamField body="type" type="string" required>
+  Document type (`driving_license`).
+</ParamField>
+<ParamField body="data" type="object" required>
+  Identity payload. For `driving_license`, requires `fullName`, `dateOfBirth`, `address`, `nationality`, `issuingAuthority`, `licenseClasses`, `restrictions`, `issueDate`, and `expiryDate`.
+</ParamField>
+
+<ResponseExample>
+```json 201
+{
+  "id": "c1f7363f-91cb-4df7-87a4-3754e38e55e0",
+  "userId": "7mZohPFv4QPtoXsyWI96tgVsnBI1Q7qg",
+  "userEmail": "sok.dara@example.com",
+  "type": "driving_license",
+  "documentNumber": "DL-0123456789",
+  "status": "issued",
+  "issuedAt": "2026-01-15T00:00:00.000Z",
+  "expiresAt": "2036-01-14T23:59:59.999Z",
+  "revokedAt": null
+}
+```
+</ResponseExample>

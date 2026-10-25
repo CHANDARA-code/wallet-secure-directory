@@ -1,0 +1,13 @@
+---
+title: "Sign out"
+api: "POST /api/auth/sign-out"
+description: "Revoke the current session."
+---
+
+Send the session cookie or `Authorization: Bearer <token>` with an empty JSON body `{}`.
+
+<ResponseExample>
+```json 200
+{ "success": true }
+```
+</ResponseExample>

@@ -1,0 +1,22 @@
+---
+title: "Get Google Wallet pass"
+api: "GET /api/documents/:id/pass/google"
+description: "Retrieve Google Wallet save URL and stub JWT."
+authMethod: "bearer"
+---
+
+Requires a valid user session. Returns `401` if unauthenticated. Foreign, revoked, or non-existent documents return `404`. Response carries `Cache-Control: no-store`.
+
+<ParamField path="id" type="string" required>
+  Document unique identifier.
+</ParamField>
+
+<ResponseExample>
+```json 200
+{
+  "jwt": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJpc3MiOiJ3YWxsZXQtYmFja2VuZC1kZXYi...`",
+  "saveUrl": "https://pay.google.com/gp/v/save/eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0...",
+  "stub": true
+}
+```
+</ResponseExample>

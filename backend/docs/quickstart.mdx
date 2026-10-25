@@ -1,0 +1,50 @@
+---
+title: "Quickstart"
+description: "Run the backend locally."
+---
+
+<Steps>
+  <Step title="Install">
+    ```bash
+    cd backend
+    npm install
+    ```
+  </Step>
+  <Step title="Configure">
+    ```bash
+    cp .env.example .env
+    openssl rand -base64 48
+    ```
+    Put the generated value in `BETTER_AUTH_SECRET`. It must be at least 32 characters. `TRUST_PROXY_HOPS` specifies the number of reverse proxy hops (0 for direct exposure/no proxy, 1 behind a single reverse proxy like Nginx or AWS ALB). In production (`NODE_ENV=production`), `TRUST_PROXY_HOPS` must be set explicitly. If set to 0 behind a reverse proxy, rate limiting treats the proxy's IP as the client IP, grouping all users into a single rate-limit bucket where one user's failed attempts can lock out all users globally. In non-production environments, it defaults to 0.
+  </Step>
+  <Step title="Migrate">
+    ```bash
+    set -a && . ./.env && set +a
+    npm run db:migrate
+    ```
+  </Step>
+  <Step title="Run">
+    ```bash
+    npm run build
+    node --env-file=.env dist/main.js
+    ```
+  </Step>
+  <Step title="Check">
+    ```bash
+    curl http://localhost:3000/api/health
+    ```
+    The response reports `"journalMode": "wal"`.
+  </Step>
+</Steps>
+
+## Using the playground
+
+The interactive API playground sends requests straight from the browser to `http://localhost:3000` (so CORS applies). To use the playground:
+
+- The backend must be running at `http://localhost:3000`.
+- `TRUSTED_ORIGINS` in your backend environment must include the docs origin (for example, `http://localhost:3333`).
+- Protected endpoints need `Authorization: Bearer <token>` from the `set-auth-token` response header of sign-in.
+
+## Changing the schema
+
+Edit `src/database/schema.ts`, then run `npm run db:generate` followed by `npm run db:migrate`.

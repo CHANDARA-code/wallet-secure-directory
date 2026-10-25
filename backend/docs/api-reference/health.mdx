@@ -1,0 +1,11 @@
+---
+title: "Health"
+api: "GET /api/health"
+description: "Liveness check that also reports the SQLite journal mode."
+---
+
+<ResponseExample>
+```json 200
+{ "status": "ok", "journalMode": "wal" }
+```
+</ResponseExample>
