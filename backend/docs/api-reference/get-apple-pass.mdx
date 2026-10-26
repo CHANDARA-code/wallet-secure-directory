@@ -1,7 +1,7 @@
 ---
 title: "Get Apple Wallet pass"
 api: "GET /api/documents/:id/pass/apple"
-description: "Download Apple Wallet pass package (.pkpass) stub."
+description: "Download Apple Wallet pass package (.pkpass)."
 authMethod: "bearer"
 ---
 
@@ -16,6 +16,15 @@ Requires a valid user session. Returns `401` if unauthenticated. Foreign, revoke
 - Status: `200 OK`
 - `Content-Type`: `application/vnd.apple.pkpass`
 - `Content-Disposition`: `attachment; filename="<documentNumber>.pkpass"`
-- `X-Pass-Stub`: `true`
 - `Cache-Control`: `no-store`
-- Body: A ZIP archive containing `pass.json` and `manifest.json`.
+
+#### Signed Mode vs Stub Mode
+
+When Apple credentials (`APPLE_PASS_TYPE_ID`, `APPLE_TEAM_ID`, `APPLE_PASS_CERT_PATH`, `APPLE_PASS_KEY_PATH`, `APPLE_WWDR_CERT_PATH`) are configured:
+- `X-Pass-Stub`: `false`
+- Body: A signed `.pkpass` archive containing `pass.json`, `manifest.json`, `icon.png`, `icon@2x.png`, and a DER detached PKCS#7 `signature` over `manifest.json` signed with the signer certificate and key including the WWDR intermediate certificate.
+- Minimal visible fields: holder name, document number, license classes, and expiry date. Date of birth and address are omitted.
+
+When credentials are not configured (development/testing fallback):
+- `X-Pass-Stub`: `true`
+- Body: An unsigned ZIP archive containing `pass.json` and `manifest.json`.

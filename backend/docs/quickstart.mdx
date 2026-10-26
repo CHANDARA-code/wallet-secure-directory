@@ -37,6 +37,42 @@ description: "Run the backend locally."
   </Step>
 </Steps>
 
+## Wallet pass configuration
+
+The backend supports generating native digital wallet passes for Apple Wallet (.pkpass) and Google Wallet (save-to-wallet JWT).
+
+### Signed vs Stub Mode
+
+- **Stub Mode (Default)**: If credentials are not configured, endpoints generate unsigned stubs (`X-Pass-Stub: true` for Apple pkpass; `stub: true` with `alg: "none"` for Google Wallet).
+- **Signed Mode**: Activates when all required credentials for the respective provider are configured.
+
+### Apple Wallet Configuration
+
+To produce signed `.pkpass` bundles with detached PKCS#7 signatures, set all required variables:
+- `APPLE_PASS_TYPE_ID`: Pass type identifier (e.g. `pass.com.example.wallet`).
+- `APPLE_TEAM_ID`: Apple Developer Team ID.
+- `APPLE_PASS_CERT_PATH`: Path to PEM certificate file.
+- `APPLE_PASS_KEY_PATH`: Path to PEM private key file.
+- `APPLE_WWDR_CERT_PATH`: Path to Apple WWDR intermediate certificate PEM file.
+- `APPLE_PASS_KEY_PASSPHRASE` (Optional): Passphrase if the private key is encrypted.
+- `APPLE_PASS_ORGANIZATION` (Optional): Organization display name (default: `Secure Identity Wallet`).
+
+### Google Wallet Configuration
+
+To produce RS256-signed Google Wallet save JWTs, set all required variables:
+- `GOOGLE_WALLET_ISSUER_ID`: Google Wallet issuer account ID.
+- `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`: Google service account email.
+- `GOOGLE_WALLET_PRIVATE_KEY_PATH`: Path to RSA private key PEM file.
+- `GOOGLE_WALLET_CLASS_SUFFIX` (Optional): Pass class suffix (default: `identity_wallet`).
+- `GOOGLE_WALLET_ORIGINS` (Optional): Comma-separated list of allowed web origins.
+
+### All-or-Nothing Group Validation
+
+Each credential group is validated independently as all-or-nothing:
+- If no variables in a group are set, that provider runs in stub mode.
+- If some but not all required variables in a group are set, the application refuses to boot and logs the missing variables.
+- All specified certificate and key paths must exist and be readable.
+
 ## Using the playground
 
 The interactive API playground sends requests straight from the browser to `http://localhost:3000` (so CORS applies). To use the playground:

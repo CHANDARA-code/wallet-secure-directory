@@ -56,12 +56,22 @@ The raw document JSON the mobile app encrypts and stores.
 ```
 
 ### `GET /api/documents/:id/pass/apple`
-`200`, `Content-Type: application/vnd.apple.pkpass`, `Content-Disposition: attachment; filename="<documentNumber>.pkpass"`. **Stub**: a zip containing `pass.json` and `manifest.json` but no real Apple signature. Response header `X-Pass-Stub: true`.
+`200`, `Content-Type: application/vnd.apple.pkpass`, `Content-Disposition: attachment; filename="<documentNumber>.pkpass"`, `Cache-Control: no-store`.
+
+- **Signed mode** (when Apple credentials `APPLE_PASS_TYPE_ID`, `APPLE_TEAM_ID`, `APPLE_PASS_CERT_PATH`, `APPLE_PASS_KEY_PATH`, `APPLE_WWDR_CERT_PATH` are configured):
+  Response header `X-Pass-Stub: false`. Package contains `pass.json`, `manifest.json`, `icon.png`, `icon@2x.png`, and a DER detached PKCS#7 `signature` over `manifest.json` signed with the signer certificate/key and WWDR chain. Visible fields are minimal (holder name, document number, license classes, expiry date; no date of birth or address).
+- **Stub mode** (fallback when credentials are not configured):
+  Response header `X-Pass-Stub: true`. An unsigned zip containing `pass.json` and `manifest.json`.
 
 ### `GET /api/documents/:id/pass/google`
-**Stub**: `200 { "jwt": "<unsigned or dev-signed JWT>", "saveUrl": "https://pay.google.com/gp/v/save/<jwt>", "stub": true }`.
+`200`, `Content-Type: application/json`, `Cache-Control: no-store`.
 
-Stubs must never claim to be signed by Apple or Google. Real signing is a later, credential-gated step.
+- **Signed mode** (when Google Wallet credentials `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_WALLET_PRIVATE_KEY_PATH` are configured):
+  `200 { "jwt": "<RS256 JWT signed with service account private key>", "saveUrl": "https://pay.google.com/gp/v/save/<jwt>", "stub": false }`. Claims include `iss`, `aud: "google"`, `typ: "savetowallet"`, `iat`, `origins`, and `payload.genericObjects` with minimal visible fields (no date of birth or address).
+- **Stub mode** (fallback when credentials are not configured):
+  `200 { "jwt": "<unsigned dev JWT with alg: none>", "saveUrl": "https://pay.google.com/gp/v/save/<jwt>", "stub": true }`.
+
+Stubs must never claim to be signed by Apple or Google (`stub: true` / `X-Pass-Stub: true`). Real signing activates only when complete provider credentials are configured in the backend environment.
 
 ## Admin endpoints (session user must have `role: "admin"`, otherwise `403`; no session `401`)
 

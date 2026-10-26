@@ -1,7 +1,7 @@
 ---
 title: "Get Google Wallet pass"
 api: "GET /api/documents/:id/pass/google"
-description: "Retrieve Google Wallet save URL and stub JWT."
+description: "Retrieve Google Wallet save URL and JWT pass."
 authMethod: "bearer"
 ---
 
@@ -11,8 +11,33 @@ Requires a valid user session. Returns `401` if unauthenticated. Foreign, revoke
   Document unique identifier.
 </ParamField>
 
+### Response
+
+- Status: `200 OK`
+- `Content-Type`: `application/json`
+- `Cache-Control`: `no-store`
+
+#### Signed Mode vs Stub Mode
+
+When Google Wallet credentials (`GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_WALLET_PRIVATE_KEY_PATH`) are configured:
+- Returns an RS256-signed JWT signed by the service account private key.
+- Claims: `iss` (service account email), `aud: "google"`, `typ: "savetowallet"`, `iat`, `origins`, and `payload.genericObjects` containing document details with minimal visible fields (holder name, document number, license classes; no date of birth or address).
+- `stub`: `false`
+
+When credentials are not configured (development/testing fallback):
+- Returns an unsigned stub JWT (`alg: "none"`, `iss: "wallet-backend-dev"`).
+- `stub`: `true`
+
 <ResponseExample>
-```json 200
+```json 200 (Signed Mode)
+{
+  "jwt": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ3YWxsZXQtc2VydmljZS1hY2NvdW50QHByb2plY3QuaWFtLmdzZXJ2aWNlYWNjb3VudC5jb20iLCJhdWQiOiJnb29nbGUiLCJ0eXAiOiJzYXZldG93YWxsZXQiLCJpYXQiOjE3MDk5OTk5OTksIm9yaWdpbnMiOltdLCJwYXlsb2FkIjp7ImdlbmVyaWRPYmplY3RzIjpbeyJpZCI6IjEyMzQ1Ni5ETC0wMTIzNDU2Nzg5IiwiY2xhc3NJZCI6IjEyMzQ1Ni5pZGVudGl0eV93YWxsZXQiLCJjYXJkVGl0bGUiOnsiZGVmYXVsdFZhbHVlIjp7Imxhbmd1YWdlIjoiZW4iLCJ2YWx1ZSI6IkRyaXZpbmcgTGljZW5zZSJ9fSwiaGVhZGVyIjp7ImRlZmF1bHRWYWx1ZSI6eyJsYW5ndWFnZSI6ImVuIiwidmFsdWUiOiJBbGljZSBXYWxrZXIifX0sInN1YmhlYWRlciI6eyJkZWZhdWx0VmFsdWUiOnsibGFuZ3VhZ2UiOiJlbiIsInZhbHVlIjoiQSwgQiJ9fX1dfX0.sig...",
+  "saveUrl": "https://pay.google.com/gp/v/save/eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "stub": false
+}
+```
+
+```json 200 (Stub Mode)
 {
   "jwt": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJpc3MiOiJ3YWxsZXQtYmFja2VuZC1kZXYi...`",
   "saveUrl": "https://pay.google.com/gp/v/save/eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0...",
