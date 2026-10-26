@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ConfigProvider } from "antd";
 import { AdminLayout } from "./AdminLayout";
-import { ThemeProvider } from "../theme/ThemeProvider";
+import { ThemeProvider, darkAntdTheme } from "../theme/ThemeProvider";
 import type { User } from "../api/types";
 
 const mockAdminUser: User = {
@@ -117,5 +118,61 @@ describe("AdminLayout component", () => {
     await user.click(signOutButton);
 
     expect(handleSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders sidebar collapse trigger without default navy background and toggles via keyboard in dark mode", async () => {
+    const user = userEvent.setup();
+    const handleSignOut = vi.fn();
+    const handlePageChange = vi.fn();
+
+    localStorage.setItem("wallet_admin_theme_mode", "dark");
+
+    const { container } = render(
+      <ThemeProvider>
+        <ConfigProvider theme={darkAntdTheme}>
+          <AdminLayout
+            user={mockAdminUser}
+            activePage="users"
+            onPageChange={handlePageChange}
+            onSignOut={handleSignOut}
+          >
+            <div>Main Content</div>
+          </AdminLayout>
+        </ConfigProvider>
+      </ThemeProvider>,
+    );
+
+    const trigger = screen.getByRole("button", {
+      name: /collapse sidebar/i,
+    });
+    expect(trigger).toBeInTheDocument();
+
+    const computedBg = window.getComputedStyle(trigger).backgroundColor;
+    expect(computedBg).not.toBe("rgb(0, 33, 64)");
+    expect(computedBg).not.toBe("#002140");
+    expect(trigger.style.backgroundColor).not.toBe("rgb(0, 33, 64)");
+    expect(trigger.style.backgroundColor).not.toBe("#002140");
+
+    const sider = container.querySelector(".ant-layout-sider");
+    expect(sider).not.toHaveClass("ant-layout-sider-collapsed");
+
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{Enter}");
+
+    const expandTrigger = screen.getByRole("button", {
+      name: /expand sidebar/i,
+    });
+    expect(expandTrigger).toBeInTheDocument();
+    expect(sider).toHaveClass("ant-layout-sider-collapsed");
+
+    await user.keyboard("{Enter}");
+
+    expect(
+      screen.getByRole("button", {
+        name: /collapse sidebar/i,
+      }),
+    ).toBeInTheDocument();
+    expect(sider).not.toHaveClass("ant-layout-sider-collapsed");
   });
 });

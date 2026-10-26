@@ -3,12 +3,13 @@ import { Button, Layout, Menu, Space, Tag, Typography, theme } from "antd";
 import type { MenuProps } from "antd";
 import {
   FileTextOutlined,
+  LeftOutlined,
   LogoutOutlined,
+  RightOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 import type { User } from "../api/types";
 import { ThemeToggle } from "./ThemeToggle";
-import { useTheme } from "../theme/ThemeProvider";
 
 const { Header, Content, Sider } = Layout;
 
@@ -29,7 +30,6 @@ export function AdminLayout({
 }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { token } = theme.useToken();
-  const { mode } = useTheme();
 
   const menuItems: MenuProps["items"] = [
     {
@@ -88,26 +88,62 @@ export function AdminLayout({
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
+          trigger={null}
           breakpoint="md"
           collapsedWidth={80}
           width={200}
-          theme={mode === "dark" ? "dark" : "light"}
+          theme="light"
           style={{
             background: token.colorBgContainer,
             borderRight: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <Menu
-            mode="inline"
-            selectedKeys={[activePage]}
-            onClick={({ key }) => onPageChange(key as "users" | "documents")}
+          <div
             style={{
+              display: "flex",
+              flexDirection: "column",
               height: "100%",
-              background: "transparent",
-              borderRight: 0,
+              justifyContent: "space-between",
             }}
-            items={menuItems}
-          />
+          >
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+              <Menu
+                mode="inline"
+                selectedKeys={[activePage]}
+                onClick={({ key }) =>
+                  onPageChange(key as "users" | "documents")
+                }
+                style={{
+                  height: "100%",
+                  background: "transparent",
+                  borderRight: 0,
+                }}
+                items={menuItems}
+              />
+            </div>
+            <button
+              type="button"
+              className="ant-layout-sider-trigger"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{
+                width: "100%",
+                height: 48,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: token.colorBgContainer,
+                color: token.colorTextSecondary,
+                border: "none",
+                borderTop: `1px solid ${token.colorBorderSecondary}`,
+                cursor: "pointer",
+                padding: 0,
+                transition: "all 0.2s",
+              }}
+            >
+              {collapsed ? <RightOutlined /> : <LeftOutlined />}
+            </button>
+          </div>
         </Sider>
 
         <Layout style={{ padding: "16px", background: "transparent" }}>
