@@ -1,9 +1,52 @@
-import { createHash } from 'node:crypto';
-import { crc32, deflateRawSync } from 'node:zlib';
+import { createHash, sign, type KeyObject } from 'node:crypto';
+import { crc32, deflateRawSync, deflateSync } from 'node:zlib';
+import * as asn1js from 'asn1js';
+import * as pkijs from 'pkijs';
+import type { ApplePassConfig } from '../config/env.js';
 
 export interface ZipEntry {
   name: string;
   content: string | Buffer;
+}
+
+export interface AppleSigningKeys {
+  signerCert: pkijs.Certificate;
+  signerKey: KeyObject;
+  wwdrCert: pkijs.Certificate;
+}
+
+function createPngChunk(type: string, data: Buffer): Buffer {
+  const typeBuf = Buffer.from(type, 'ascii');
+  const lenBuf = Buffer.alloc(4);
+  lenBuf.writeUInt32BE(data.length, 0);
+  const toCrc = Buffer.concat([typeBuf, data]);
+  const crcVal = crc32(toCrc);
+  const crcBuf = Buffer.alloc(4);
+  crcBuf.writeUInt32BE(crcVal >>> 0, 0);
+  return Buffer.concat([lenBuf, typeBuf, data, crcBuf]);
+}
+
+export function generateTinyPng(width = 1, height = 1): Buffer {
+  const signature = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+  const ihdrData = Buffer.alloc(13);
+  ihdrData.writeUInt32BE(width, 0);
+  ihdrData.writeUInt32BE(height, 4);
+  ihdrData.writeUInt8(8, 8);
+  ihdrData.writeUInt8(6, 9);
+  ihdrData.writeUInt8(0, 10);
+  ihdrData.writeUInt8(0, 11);
+  ihdrData.writeUInt8(0, 12);
+
+  const ihdrChunk = createPngChunk('IHDR', ihdrData);
+  const scanlineLength = 1 + width * 4;
+  const rawData = Buffer.alloc(scanlineLength * height, 0);
+  const compressed = deflateSync(rawData);
+  const idatChunk = createPngChunk('IDAT', compressed);
+  const iendChunk = createPngChunk('IEND', Buffer.alloc(0));
+
+  return Buffer.concat([signature, ihdrChunk, idatChunk, iendChunk]);
 }
 
 export function createZipBuffer(entries: ZipEntry[]): Buffer {
@@ -131,5 +174,143 @@ export function createApplePassZip(
   return createZipBuffer([
     { name: 'pass.json', content: passJsonContent },
     { name: 'manifest.json', content: manifestJsonContent },
+  ]);
+}
+
+export function createSignedApplePassZip(
+  documentNumber: string,
+  payload: Record<string, unknown>,
+  config: ApplePassConfig,
+  keys: AppleSigningKeys,
+): Buffer {
+  const passJson = {
+    formatVersion: 1,
+    passTypeIdentifier: config.passTypeId,
+    serialNumber: documentNumber,
+    teamIdentifier: config.teamId,
+    organizationName: config.organizationName,
+    description: 'Driving License',
+    logoText: config.organizationName,
+    generic: {
+      primaryFields: [
+        {
+          key: 'name',
+          label: 'NAME',
+          value:
+            typeof payload['fullName'] === 'string' ? payload['fullName'] : '',
+        },
+      ],
+      secondaryFields: [
+        {
+          key: 'licenseNumber',
+          label: 'LICENSE NO',
+          value: documentNumber,
+        },
+        {
+          key: 'classes',
+          label: 'CLASSES',
+          value: Array.isArray(payload['licenseClasses'])
+            ? payload['licenseClasses'].join(', ')
+            : '',
+        },
+      ],
+      auxiliaryFields: [
+        {
+          key: 'expiryDate',
+          label: 'EXPIRY DATE',
+          value:
+            typeof payload['expiryDate'] === 'string'
+              ? payload['expiryDate']
+              : '',
+        },
+      ],
+    },
+  };
+
+  const passJsonBuffer = Buffer.from(JSON.stringify(passJson, null, 2), 'utf8');
+  const iconPngBuffer = generateTinyPng(1, 1);
+  const icon2xPngBuffer = generateTinyPng(2, 2);
+
+  const manifest: Record<string, string> = {
+    'icon.png': createHash('sha1').update(iconPngBuffer).digest('hex'),
+    'icon@2x.png': createHash('sha1').update(icon2xPngBuffer).digest('hex'),
+    'pass.json': createHash('sha1').update(passJsonBuffer).digest('hex'),
+  };
+
+  const manifestBuffer = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
+  const manifestSha256 = createHash('sha256').update(manifestBuffer).digest();
+
+  const signedAttrs = new pkijs.SignedAndUnsignedAttributes({
+    type: 0,
+    attributes: [
+      new pkijs.Attribute({
+        type: '1.2.840.113549.1.9.3',
+        values: [
+          new asn1js.ObjectIdentifier({ value: '1.2.840.113549.1.7.1' }),
+        ],
+      }),
+      new pkijs.Attribute({
+        type: '1.2.840.113549.1.9.5',
+        values: [new asn1js.UTCTime({ valueDate: new Date() })],
+      }),
+      new pkijs.Attribute({
+        type: '1.2.840.113549.1.9.4',
+        values: [new asn1js.OctetString({ valueHex: manifestSha256 })],
+      }),
+    ],
+  });
+
+  const attrsBer = signedAttrs.toSchema().toBER();
+  const attrsUint8 = new Uint8Array(attrsBer);
+  attrsUint8[0] = 0x31;
+
+  const signature = sign('sha256', Buffer.from(attrsUint8), keys.signerKey);
+
+  const signerInfo = new pkijs.SignerInfo({
+    version: 1,
+    sid: new pkijs.IssuerAndSerialNumber({
+      issuer: keys.signerCert.issuer,
+      serialNumber: keys.signerCert.serialNumber,
+    }),
+    digestAlgorithm: new pkijs.AlgorithmIdentifier({
+      algorithmId: '2.16.840.1.101.3.4.2.1',
+      algorithmParams: new asn1js.Null(),
+    }),
+    signedAttrs,
+    signatureAlgorithm: new pkijs.AlgorithmIdentifier({
+      algorithmId: '1.2.840.113549.1.1.1',
+      algorithmParams: new asn1js.Null(),
+    }),
+    signature: new asn1js.OctetString({ valueHex: signature }),
+  });
+
+  const signedData = new pkijs.SignedData({
+    version: 1,
+    digestAlgorithms: [
+      new pkijs.AlgorithmIdentifier({
+        algorithmId: '2.16.840.1.101.3.4.2.1',
+        algorithmParams: new asn1js.Null(),
+      }),
+    ],
+    encapContentInfo: new pkijs.EncapsulatedContentInfo({
+      eContentType: '1.2.840.113549.1.7.1',
+    }),
+    certificates: [keys.signerCert, keys.wwdrCert],
+    signerInfos: [signerInfo],
+  });
+
+  const cms = new pkijs.ContentInfo({
+    contentType: '1.2.840.113549.1.7.2',
+    content: signedData.toSchema(true),
+  });
+
+  const signatureBuffer = Buffer.from(cms.toSchema().toBER());
+
+  return createZipBuffer([
+    { name: 'icon.png', content: iconPngBuffer },
+    { name: 'icon@2x.png', content: icon2xPngBuffer },
+    { name: 'manifest.json', content: manifestBuffer },
+    { name: 'pass.json', content: passJsonBuffer },
+    { name: 'signature', content: signatureBuffer },
   ]);
 }

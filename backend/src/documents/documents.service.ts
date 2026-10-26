@@ -2,15 +2,16 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 import { DRIZZLE, type AppDatabase } from '../database/database.module.js';
 import * as schema from '../database/schema.js';
-import { createApplePassZip } from './apple-pass.util.js';
-import {
-  createGooglePassStub,
-  type GooglePassStub,
-} from './google-pass.util.js';
+import type { GooglePassResponse } from './google-pass.util.js';
+import { PassSigningService } from './pass-signing.service.js';
 
 @Injectable()
 export class DocumentsService {
-  constructor(@Inject(DRIZZLE) private readonly db: AppDatabase) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: AppDatabase,
+    @Inject(PassSigningService)
+    private readonly passSigningService: PassSigningService,
+  ) {}
 
   async listUserDocuments(userId: string) {
     return this.db
@@ -62,7 +63,7 @@ export class DocumentsService {
   async getApplePass(
     id: string,
     userId: string,
-  ): Promise<{ documentNumber: string; zipBuffer: Buffer }> {
+  ): Promise<{ documentNumber: string; zipBuffer: Buffer; isStub: boolean }> {
     const doc = this.db
       .select({
         documentNumber: schema.identityDocument.documentNumber,
@@ -82,14 +83,13 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    const zipBuffer = createApplePassZip(doc.documentNumber, doc.payload);
-    return {
-      documentNumber: doc.documentNumber,
-      zipBuffer,
-    };
+    return this.passSigningService.getApplePass(
+      doc.documentNumber,
+      doc.payload,
+    );
   }
 
-  async getGooglePass(id: string, userId: string): Promise<GooglePassStub> {
+  async getGooglePass(id: string, userId: string): Promise<GooglePassResponse> {
     const doc = this.db
       .select({
         documentNumber: schema.identityDocument.documentNumber,
@@ -109,6 +109,9 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    return createGooglePassStub(doc.documentNumber, doc.payload);
+    return this.passSigningService.getGooglePass(
+      doc.documentNumber,
+      doc.payload,
+    );
   }
 }

@@ -39,7 +39,7 @@ export class DocumentsController {
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const { documentNumber, zipBuffer } =
+    const { documentNumber, zipBuffer, isStub } =
       await this.documentsService.getApplePass(id, session.user.id);
 
     res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
@@ -47,7 +47,7 @@ export class DocumentsController {
       'Content-Disposition',
       `attachment; filename="${documentNumber}.pkpass"`,
     );
-    res.setHeader('X-Pass-Stub', 'true');
+    res.setHeader('X-Pass-Stub', isStub ? 'true' : 'false');
     res.setHeader('Cache-Control', 'no-store');
     res.send(zipBuffer);
   }
