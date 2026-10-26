@@ -1,3 +1,24 @@
+import { accessSync, constants } from 'node:fs';
+import { basename } from 'node:path';
+
+export interface ApplePassConfig {
+  passTypeId: string;
+  teamId: string;
+  certPath: string;
+  keyPath: string;
+  wwdrCertPath: string;
+  keyPassphrase?: string;
+  organizationName: string;
+}
+
+export interface GooglePassConfig {
+  issuerId: string;
+  serviceAccountEmail: string;
+  privateKeyPath: string;
+  classSuffix: string;
+  origins: string[];
+}
+
 export interface Env {
   NODE_ENV: 'development' | 'production' | 'test';
   PORT: number;
@@ -6,9 +27,37 @@ export interface Env {
   BETTER_AUTH_URL: string;
   TRUSTED_ORIGINS: string[];
   TRUST_PROXY_HOPS: number;
+  applePass?: ApplePassConfig;
+  googlePass?: GooglePassConfig;
 }
 
 const MIN_SECRET_LENGTH = 32;
+
+const APPLE_REQUIRED_KEYS = [
+  'APPLE_PASS_TYPE_ID',
+  'APPLE_TEAM_ID',
+  'APPLE_PASS_CERT_PATH',
+  'APPLE_PASS_KEY_PATH',
+  'APPLE_WWDR_CERT_PATH',
+] as const;
+
+const APPLE_ALL_KEYS = [
+  ...APPLE_REQUIRED_KEYS,
+  'APPLE_PASS_KEY_PASSPHRASE',
+  'APPLE_PASS_ORGANIZATION',
+] as const;
+
+const GOOGLE_REQUIRED_KEYS = [
+  'GOOGLE_WALLET_ISSUER_ID',
+  'GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL',
+  'GOOGLE_WALLET_PRIVATE_KEY_PATH',
+] as const;
+
+const GOOGLE_ALL_KEYS = [
+  ...GOOGLE_REQUIRED_KEYS,
+  'GOOGLE_WALLET_CLASS_SUFFIX',
+  'GOOGLE_WALLET_ORIGINS',
+] as const;
 
 export function validateEnv(raw: Record<string, unknown>): Env {
   const nodeEnv = String(raw.NODE_ENV ?? 'development');
@@ -56,6 +105,101 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     trustProxyHops = parsed;
   }
 
+  let applePass: ApplePassConfig | undefined;
+  const hasAnyApple = APPLE_ALL_KEYS.some(
+    (key) => raw[key] !== undefined && String(raw[key]).trim() !== '',
+  );
+
+  if (hasAnyApple) {
+    const missing = APPLE_REQUIRED_KEYS.filter(
+      (key) => raw[key] === undefined || String(raw[key]).trim() === '',
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `Apple pass configuration is incomplete. Missing: ${missing.join(', ')}`,
+      );
+    }
+
+    const certPath = String(raw.APPLE_PASS_CERT_PATH);
+    const keyPath = String(raw.APPLE_PASS_KEY_PATH);
+    const wwdrCertPath = String(raw.APPLE_WWDR_CERT_PATH);
+
+    for (const [key, filePath] of [
+      ['APPLE_PASS_CERT_PATH', certPath],
+      ['APPLE_PASS_KEY_PATH', keyPath],
+      ['APPLE_WWDR_CERT_PATH', wwdrCertPath],
+    ] as const) {
+      try {
+        accessSync(filePath, constants.R_OK);
+      } catch {
+        throw new Error(
+          `${key} file "${basename(filePath)}" does not exist or is not readable`,
+        );
+      }
+    }
+
+    applePass = {
+      passTypeId: String(raw.APPLE_PASS_TYPE_ID),
+      teamId: String(raw.APPLE_TEAM_ID),
+      certPath,
+      keyPath,
+      wwdrCertPath,
+      keyPassphrase:
+        raw.APPLE_PASS_KEY_PASSPHRASE &&
+        String(raw.APPLE_PASS_KEY_PASSPHRASE).trim() !== ''
+          ? String(raw.APPLE_PASS_KEY_PASSPHRASE)
+          : undefined,
+      organizationName:
+        raw.APPLE_PASS_ORGANIZATION &&
+        String(raw.APPLE_PASS_ORGANIZATION).trim() !== ''
+          ? String(raw.APPLE_PASS_ORGANIZATION)
+          : 'Secure Identity Wallet',
+    };
+  }
+
+  let googlePass: GooglePassConfig | undefined;
+  const hasAnyGoogle = GOOGLE_ALL_KEYS.some(
+    (key) => raw[key] !== undefined && String(raw[key]).trim() !== '',
+  );
+
+  if (hasAnyGoogle) {
+    const missing = GOOGLE_REQUIRED_KEYS.filter(
+      (key) => raw[key] === undefined || String(raw[key]).trim() === '',
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `Google pass configuration is incomplete. Missing: ${missing.join(', ')}`,
+      );
+    }
+
+    const privateKeyPath = String(raw.GOOGLE_WALLET_PRIVATE_KEY_PATH);
+    try {
+      accessSync(privateKeyPath, constants.R_OK);
+    } catch {
+      throw new Error(
+        `GOOGLE_WALLET_PRIVATE_KEY_PATH file "${basename(privateKeyPath)}" does not exist or is not readable`,
+      );
+    }
+
+    const rawOrigins = String(raw.GOOGLE_WALLET_ORIGINS ?? '');
+    const origins = rawOrigins
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+
+    googlePass = {
+      issuerId: String(raw.GOOGLE_WALLET_ISSUER_ID),
+      serviceAccountEmail: String(raw.GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL),
+      privateKeyPath,
+      classSuffix:
+        raw.GOOGLE_WALLET_CLASS_SUFFIX &&
+        String(raw.GOOGLE_WALLET_CLASS_SUFFIX).trim() !== ''
+          ? String(raw.GOOGLE_WALLET_CLASS_SUFFIX)
+          : 'identity_wallet',
+      origins,
+    };
+  }
+
   return {
     NODE_ENV: nodeEnv as Env['NODE_ENV'],
     PORT: port,
@@ -67,5 +211,7 @@ export function validateEnv(raw: Record<string, unknown>): Env {
       .map((origin) => origin.trim())
       .filter(Boolean),
     TRUST_PROXY_HOPS: trustProxyHops,
+    applePass,
+    googlePass,
   };
 }
