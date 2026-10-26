@@ -9,14 +9,17 @@ import 'document_model.dart';
 import 'document_viewer_screen.dart';
 import 'documents_notifier.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
-  Future<void> _handleUnlock(
-    BuildContext context,
-    WidgetRef ref,
-    String documentId,
-  ) async {
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  String? _provisioningDocumentId;
+
+  Future<void> _handleUnlock(BuildContext context, String documentId) async {
     final result = await ref
         .read(documentsNotifierProvider.notifier)
         .unlockDocument(documentId);
@@ -39,42 +42,58 @@ class HomeScreen extends ConsumerWidget {
 
   Future<void> _handleAddToWallet(
     BuildContext context,
-    WidgetRef ref,
     String documentId,
   ) async {
-    final authState = ref.read(authNotifierProvider);
-    if (authState is! Authenticated) return;
+    if (_provisioningDocumentId != null) return;
+    setState(() {
+      _provisioningDocumentId = documentId;
+    });
 
-    final provisioner = ref.read(walletProvisionerProvider);
-    final result = await provisioner.provision(
-      documentId: documentId,
-      token: authState.token,
-    );
+    try {
+      final authState = ref.read(authNotifierProvider);
+      if (authState is! Authenticated) return;
 
-    if (!context.mounted) return;
+      final provisioner = ref.read(walletProvisionerProvider);
+      final result = await provisioner.provision(
+        documentId: documentId,
+        token: authState.token,
+      );
 
-    switch (result) {
-      case WalletProvisionStubError(:final message):
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      case WalletProvisionFailure(:final message):
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      case WalletProvisionUnavailable(:final message):
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      case WalletProvisionSuccess():
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Pass added to wallet.')));
+      if (!context.mounted) return;
+
+      switch (result) {
+        case WalletProvisionStubError(:final message):
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        case WalletProvisionFailure(:final message):
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        case WalletProvisionUnavailable(:final message):
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        case WalletProvisionSuccess():
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Pass added to wallet.')),
+          );
+        case WalletProvisionCancelled():
+          break;
+        case WalletProvisionBusy():
+          break;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _provisioningDocumentId = null;
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final documentsState = ref.watch(documentsNotifierProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final statusColors = context.statusColors;
@@ -185,8 +204,9 @@ class HomeScreen extends ConsumerWidget {
               return _DocumentCard(
                 document: doc,
                 statusSuccessColor: statusColors.success,
-                onView: () => _handleUnlock(context, ref, doc.id),
-                onAddToWallet: () => _handleAddToWallet(context, ref, doc.id),
+                isProvisioning: _provisioningDocumentId == doc.id,
+                onView: () => _handleUnlock(context, doc.id),
+                onAddToWallet: () => _handleAddToWallet(context, doc.id),
                 onSaveOffline: () {
                   ref
                       .read(documentsNotifierProvider.notifier)
@@ -207,6 +227,7 @@ class _DocumentCard extends StatelessWidget {
   final VoidCallback onView;
   final VoidCallback onAddToWallet;
   final VoidCallback onSaveOffline;
+  final bool isProvisioning;
 
   const _DocumentCard({
     required this.document,
@@ -214,6 +235,7 @@ class _DocumentCard extends StatelessWidget {
     required this.onView,
     required this.onAddToWallet,
     required this.onSaveOffline,
+    this.isProvisioning = false,
   });
 
   @override
@@ -347,11 +369,20 @@ class _DocumentCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: onAddToWallet,
-                    icon: const Icon(
-                      Icons.account_balance_wallet_outlined,
-                      size: 18,
-                    ),
+                    onPressed: isProvisioning ? null : onAddToWallet,
+                    icon: isProvisioning
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.primary,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.account_balance_wallet_outlined,
+                            size: 18,
+                          ),
                     label: const Text('Add to OS Wallet'),
                   ),
                 ),

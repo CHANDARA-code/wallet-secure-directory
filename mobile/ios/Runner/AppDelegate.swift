@@ -15,6 +15,7 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     setupBackupExclusionChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
+    WalletChannelHandler.register(with: engineBridge.applicationRegistrar.messenger())
   }
 
   private func setupBackupExclusionChannel(binaryMessenger: FlutterBinaryMessenger) {
