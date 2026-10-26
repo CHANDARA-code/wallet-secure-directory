@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'crypto_exceptions.dart';
 
 class ParsedEnvelope {
@@ -141,3 +142,7 @@ class CryptoService {
     }
   }
 }
+
+final cryptoServiceProvider = Provider<CryptoService>((ref) {
+  return CryptoService();
+});

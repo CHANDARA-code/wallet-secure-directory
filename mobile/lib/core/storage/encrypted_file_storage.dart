@@ -75,7 +75,9 @@ class IoEncryptedFileStorage implements EncryptedFileStorage {
   }) async {
     _validateDocumentId(documentId);
     final file = await _getFile(documentId);
-    await file.writeAsBytes(encryptedEnvelope, flush: true);
+    final tempFile = File('${file.path}.tmp');
+    await tempFile.writeAsBytes(encryptedEnvelope, flush: true);
+    await tempFile.rename(file.path);
   }
 
   @override

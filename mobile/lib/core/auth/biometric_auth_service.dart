@@ -9,6 +9,7 @@ enum BiometricStatus {
   unsupported,
   canceled,
   failure,
+  keyInvalidated,
 }
 
 class BiometricAuthResult {
