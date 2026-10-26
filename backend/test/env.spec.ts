@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateEnv } from '../src/config/env.js';
 
@@ -195,5 +198,125 @@ describe('validateEnv', () => {
       TRUST_PROXY_HOPS: '1',
     });
     expect(prodEnvProxied.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it('rejects partial Apple pass configuration and names missing variables', () => {
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        APPLE_PASS_TYPE_ID: 'pass.com.wallet.test',
+      }),
+    ).toThrow(
+      'Apple pass configuration is incomplete. Missing: APPLE_TEAM_ID, APPLE_PASS_CERT_PATH, APPLE_PASS_KEY_PATH, APPLE_WWDR_CERT_PATH',
+    );
+
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        APPLE_PASS_ORGANIZATION: 'Custom Org',
+      }),
+    ).toThrow(
+      'Apple pass configuration is incomplete. Missing: APPLE_PASS_TYPE_ID, APPLE_TEAM_ID, APPLE_PASS_CERT_PATH, APPLE_PASS_KEY_PATH, APPLE_WWDR_CERT_PATH',
+    );
+  });
+
+  it('rejects partial Google pass configuration and names missing variables', () => {
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        GOOGLE_WALLET_ISSUER_ID: '123456789',
+      }),
+    ).toThrow(
+      'Google pass configuration is incomplete. Missing: GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL, GOOGLE_WALLET_PRIVATE_KEY_PATH',
+    );
+
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        GOOGLE_WALLET_ORIGINS: 'https://example.com',
+      }),
+    ).toThrow(
+      'Google pass configuration is incomplete. Missing: GOOGLE_WALLET_ISSUER_ID, GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL, GOOGLE_WALLET_PRIVATE_KEY_PATH',
+    );
+  });
+
+  it('rejects Apple pass configuration when credential files are missing', () => {
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        APPLE_PASS_TYPE_ID: 'pass.com.wallet.test',
+        APPLE_TEAM_ID: 'TEAM123',
+        APPLE_PASS_CERT_PATH: '/path/to/nonexistent-signer.cert',
+        APPLE_PASS_KEY_PATH: '/path/to/nonexistent-signer.key',
+        APPLE_WWDR_CERT_PATH: '/path/to/nonexistent-wwdr.cert',
+      }),
+    ).toThrow(
+      'APPLE_PASS_CERT_PATH file "nonexistent-signer.cert" does not exist or is not readable',
+    );
+  });
+
+  it('rejects Google pass configuration when private key file is missing', () => {
+    expect(() =>
+      validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        GOOGLE_WALLET_ISSUER_ID: '123456789',
+        GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL: 'wallet@example.com',
+        GOOGLE_WALLET_PRIVATE_KEY_PATH: '/path/to/nonexistent-key.pem',
+      }),
+    ).toThrow(
+      'GOOGLE_WALLET_PRIVATE_KEY_PATH file "nonexistent-key.pem" does not exist or is not readable',
+    );
+  });
+
+  it('validates complete Apple and Google pass configurations with valid files', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'env-test-'));
+    const certFile = join(tempDir, 'signer.cert');
+    const keyFile = join(tempDir, 'signer.key');
+    const wwdrFile = join(tempDir, 'wwdr.cert');
+    const googleKeyFile = join(tempDir, 'google.key');
+
+    writeFileSync(certFile, 'cert-content');
+    writeFileSync(keyFile, 'key-content');
+    writeFileSync(wwdrFile, 'wwdr-content');
+    writeFileSync(googleKeyFile, 'google-key-content');
+
+    try {
+      const env = validateEnv({
+        BETTER_AUTH_SECRET: validSecret,
+        APPLE_PASS_TYPE_ID: 'pass.com.wallet.test',
+        APPLE_TEAM_ID: 'TEAM123',
+        APPLE_PASS_CERT_PATH: certFile,
+        APPLE_PASS_KEY_PATH: keyFile,
+        APPLE_WWDR_CERT_PATH: wwdrFile,
+        APPLE_PASS_KEY_PASSPHRASE: 'test-passphrase',
+        APPLE_PASS_ORGANIZATION: 'Test Org',
+        GOOGLE_WALLET_ISSUER_ID: '123456789',
+        GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL: 'wallet@example.com',
+        GOOGLE_WALLET_PRIVATE_KEY_PATH: googleKeyFile,
+        GOOGLE_WALLET_CLASS_SUFFIX: 'custom_suffix',
+        GOOGLE_WALLET_ORIGINS:
+          'https://wallet.example.com, https://app.example.com',
+      });
+
+      expect(env.applePass).toEqual({
+        passTypeId: 'pass.com.wallet.test',
+        teamId: 'TEAM123',
+        certPath: certFile,
+        keyPath: keyFile,
+        wwdrCertPath: wwdrFile,
+        keyPassphrase: 'test-passphrase',
+        organizationName: 'Test Org',
+      });
+
+      expect(env.googlePass).toEqual({
+        issuerId: '123456789',
+        serviceAccountEmail: 'wallet@example.com',
+        privateKeyPath: googleKeyFile,
+        classSuffix: 'custom_suffix',
+        origins: ['https://wallet.example.com', 'https://app.example.com'],
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
