@@ -78,6 +78,37 @@ sequenceDiagram
 
 ---
 
+## Screenshots
+
+### Admin Portal
+
+| Screenshot | Description |
+| :---: | :--- |
+| <img src="docs/screenshots/admin-login.png" alt="Admin Portal Login Screen" width="480"> | **Admin Login**: Sign-in page with empty credentials in light theme. |
+| <img src="docs/screenshots/admin-users.png" alt="Admin Portal Users List" width="480"> | **Users Management**: Table listing registered fictional users and their active credential counts. |
+| <img src="docs/screenshots/admin-issue-document.png" alt="Issue Identity Document Modal" width="480"> | **Issue Document**: Dialog form for issuing a driving license credential. |
+| <img src="docs/screenshots/admin-documents-dark.png" alt="Admin Portal Documents Dark Theme" width="480"> | **Documents Overview (Dark Mode)**: Credential status list showing issued and revoked records. |
+
+### API Documentation
+
+| Screenshot | Description |
+| :---: | :--- |
+| <img src="docs/screenshots/api-docs-introduction.png" alt="API Documentation Introduction" width="480"> | **Introduction**: System overview and architecture guide in Mintlify. |
+| <img src="docs/screenshots/api-docs-endpoint.png" alt="API Documentation Get Document Endpoint" width="480"> | **Endpoint Reference**: Request and response example for the raw document JSON that the mobile app encrypts. |
+
+### Mobile Application
+
+| Screenshot | Description |
+| :---: | :--- |
+| <img src="docs/screenshots/mobile-login.png" alt="Mobile Application Login Screen" width="280"> | **Mobile Login**: Initial user authentication screen. |
+| <img src="docs/screenshots/mobile-home.png" alt="Mobile Documents List Light Mode" width="280"> | **Wallet Home (Light Mode)**: Issued driving license card with offline caching and wallet actions. |
+| <img src="docs/screenshots/mobile-home-dark.png" alt="Mobile Documents List Dark Mode" width="280"> | **Wallet Home (Dark Mode)**: Credential dashboard in iOS system dark appearance. |
+| <img src="docs/screenshots/mobile-viewer.png" alt="Decrypted Document Viewer Screen" width="280"> | **Decrypted Document Viewer**: Presentation view displaying decrypted identity claims. |
+
+All credential claims, names, and identifiers displayed are fictional demonstration data. Biometric authentication was simulated using a controllable provider in the iOS Simulator for the viewer screen.
+
+---
+
 ## Repository Layout
 
 ```text
@@ -208,6 +239,8 @@ ADMIN_PASSWORD="YourSecurePassword123!" \
 ADMIN_NAME="Administrator" \
 npm run seed:admin
 ```
+
+> The password above is only an example for local development. Choose your own, and never reuse it on a deployed instance.
 
 #### 5. Build and Start the Backend
 
