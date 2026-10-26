@@ -18,12 +18,19 @@ class DecryptedDocument {
 
 class DecryptedDocumentNotifier extends Notifier<DecryptedDocument?>
     with WidgetsBindingObserver {
+  bool _disposed = false;
+
   @override
   DecryptedDocument? build() {
+    _disposed = false;
     WidgetsBinding.instance.addObserver(this);
     ref.onDispose(() {
+      _disposed = true;
       WidgetsBinding.instance.removeObserver(this);
-      clear();
+      final current = state;
+      if (current != null) {
+        current.zeroAndDispose();
+      }
     });
     return null;
   }
@@ -42,6 +49,20 @@ class DecryptedDocumentNotifier extends Notifier<DecryptedDocument?>
       current.zeroAndDispose();
     }
     state = null;
+  }
+
+  void clearDeferred() {
+    final current = state;
+    if (current != null) {
+      current.zeroAndDispose();
+    }
+    Future.microtask(() {
+      if (!_disposed) {
+        try {
+          state = null;
+        } catch (_) {}
+      }
+    });
   }
 
   @override

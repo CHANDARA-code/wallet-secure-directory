@@ -25,7 +25,7 @@ class _DocumentViewerScreenState extends ConsumerState<DocumentViewerScreen> {
 
   @override
   void dispose() {
-    _viewerNotifier.clear();
+    _viewerNotifier.clearDeferred();
     super.dispose();
   }
 
