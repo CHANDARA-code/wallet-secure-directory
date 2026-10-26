@@ -52,6 +52,22 @@ void main() {
       findsOneWidget,
     );
 
+    final passwordField = tester.widget<TextField>(
+      find.descendant(
+        of: find.byKey(const Key('create_account_password_field')),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(passwordField.obscureText, isTrue);
+
+    final confirmPasswordField = tester.widget<TextField>(
+      find.descendant(
+        of: find.byKey(const Key('create_account_confirm_password_field')),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(confirmPasswordField.obscureText, isTrue);
+
     await tester.tap(find.byKey(const Key('create_account_submit_button')));
     await tester.pumpAndSettle();
     expect(find.text('Please enter your name'), findsOneWidget);
