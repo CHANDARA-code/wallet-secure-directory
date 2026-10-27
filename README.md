@@ -64,7 +64,7 @@ sequenceDiagram
     else Pass is signed
         Mobile->>Wallet: Present native wallet sheet (PassKit / Google Wallet)
         Wallet-->>Mobile: Confirmation result (success / cancel / failure)
-        Mobile-->>User: Surface outcome (SnackBar on success/failure; quiet on cancel)
+        Mobile-->>User: Surface outcome (SnackBar on success or failure, quiet on cancel)
     end
     end
 
