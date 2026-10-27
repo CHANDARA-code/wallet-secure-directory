@@ -6,9 +6,15 @@
 - **Algorithm**: AES-256 in Galois/Counter Mode (AES-GCM).
 - **Key Generation**: 32-byte (256-bit) cryptographically secure random keys are generated on-device using Dart's CSPRNG `Random.secure()`.
 - **First-Time Provisioning**: Key existence is checked via a non-secret-returning existence check (`hasKey()`). If no key exists in secure storage, a key is generated with `Random.secure()`, written to secure storage, and returned without prompting for biometrics since no existing secret is being released.
-- **Biometric Key Gating**: Once an encryption key exists, every subsequent retrieval from secure storage must be authorized through `BiometricKeyProvider` via biometric authentication (`biometricOnly: true`).
-- **Authentication Separation**: The `signIn` flow does not read the encryption key. Document viewing (`unlockDocument`) gates the entire flow on biometric authentication before any file or network caching occurs.
-- **In-Memory Zeroing**: Active key byte arrays (`Uint8List`) in memory are zeroed (`fillRange(0, length, 0)`) immediately after encryption and decryption within `finally` blocks to minimize exposure in heap memory.
+- **Biometric Key Gating**: Once an encryption key exists, subsequent retrieval from secure storage must be authorized through `BiometricKeyProvider`. In the default configuration (`OS_BOUND_KEY=false`), this enforces an application-level biometric prompt via `local_auth` (`biometricOnly: true`). When built with `--dart-define=OS_BOUND_KEY=true`, retrieval triggers OS-level biometric release in Keystore/Keychain.
+- **Document Loading & Automatic Encrypted Storage**:
+  - The `signIn` flow itself does not read the encryption key; it writes the session bearer token atomically to secure storage.
+  - However, upon successful authentication, `loadDocuments` is triggered automatically to fetch document metadata.
+  - Any issued document not yet stored locally is automatically downloaded, encrypted with AES-256-GCM, and stored in the Application Support directory (`doc_<id>.enc`) without requiring manual user intervention.
+  - **Prompt Rules**: If no key exists yet, `getOrCreateEncryptionKey()` creates and stores one without prompting. If an encryption key already exists (or in OS-bound mode with an existing key, or when unstored/mismatched documents are present), exactly **one** biometric prompt covers the entire batch fetch and encryption operation.
+  - **Biometric Denial**: If biometrics are cancelled or denied during auto-store, `keyResult` returns `KeyRetrievalFailure`; batch encryption is safely skipped, documents remain in memory/network state with `isStoredOffline: false`, and the application does not crash.
+  - **In-Flight Load Serialization**: An internal Future guard (`_activeLoadFuture`) serializes concurrent calls to `loadDocuments`. If a load is already in progress, additional invocations await the active Future.
+  - **Key & Plaintext Buffer Zeroing**: In a `finally` block enclosing the batch re-encryption/auto-store operation, active key bytes are zeroed (`key.fillRange(0, key.length, 0)`). In addition, each document's raw payload bytes (`rawBytes`) are zeroed in their own `finally` blocks immediately after encryption.
 - **Key Storage**: Keys are never hardcoded and never persisted to plain storage (`SharedPreferences` / `NSUserDefaults`). The encryption key is stored exclusively in `flutter_secure_storage`, which bridges to Android Keystore and iOS Keychain.
 - **Platform Configuration**:
   - **iOS**: Configured with `KeychainAccessibility.first_unlock_this_device` and `synchronizable: false` (no iCloud Keychain synchronization).
@@ -42,10 +48,40 @@ True hardware-backed cryptographic protection requires the operating system's Se
 - **Android Keystore**: Using `KeyGenParameterSpec.Builder.setUserAuthenticationRequired(true)` binds the cryptographic key directly to biometric authentication. The Keymaster/Keymint TEE hardware refuses to perform cryptographic operations (or release key material) without a valid biometric authentication token from the OS biometric daemon.
 - **iOS Keychain**: Using `SecAccessControlCreateWithFlags` with `.biometryCurrentSet` or `.biometryAny` combined with `.userPresence` ensures the Keychain item is guarded by the Secure Enclave. The item cannot be decrypted without local Touch ID/Face ID authentication verified by the Secure Enclave Processor (SEP).
 
-### Capabilities of `flutter_secure_storage` (v11.2.0)
-The installed version of `flutter_secure_storage` (v11.2.0) exposes certain biometric parameters on Android:
-- `AndroidOptions(enforceBiometrics: true, requireBiometricsPerOperation: true)`.
-However, on iOS, `IOSOptions` only provides accessibility flags (`first_unlock_this_device`) and `useSecureEnclave: bool`, but does not expose fine-grained `SecAccessControl` constraints (such as `kSecAccessControlBiometryCurrentSet`) with seamless Flutter platform callbacks. Consequently, relying on a unified cross-platform app-level gate backed by `local_auth` is required to handle explicit fallback states (e.g., `notEnrolled`, `lockedOut`, `canceled`, `unsupported`) consistently across platforms while maintaining secure Keystore/Keychain storage.
+### Capabilities of `flutter_secure_storage` (v11.2.0) and the `OS_BOUND_KEY` Opt-In
+
+The installed version of `flutter_secure_storage` (v11.2.0) provides fine-grained biometric access control on both iOS and Android:
+- **iOS**: Configured with `accessControlFlags: [AccessControlFlag.biometryCurrentSet, AccessControlFlag.userPresence]` alongside `KeychainAccessibility.first_unlock_this_device` and `synchronizable: false`.
+- **Android**: Configured with `AndroidOptions.biometric(resetOnError: true, enforceBiometrics: true, requireBiometricsPerOperation: true, biometricPromptTitle: 'Authenticate to access document key', biometricPromptSubtitle: 'Biometric authentication required', biometricPromptNegativeButton: 'Cancel')`.
+
+#### Compile-Time Opt-In Flag
+The application uses these OS-bound biometric storage options **ONLY** when compiled with the explicit flag:
+```bash
+--dart-define=OS_BOUND_KEY=true
+```
+- By default (`OS_BOUND_KEY=false`), the app uses standard secure storage without OS biometric constraints, relying on the unified `local_auth` application-level gate.
+- **Hardware Status**: OS-bound key mode compiles cleanly and runs in automated test suites, but has **not yet been validated on physical hardware devices** with real Secure Enclave / Keymaster TEE chips.
+
+#### Distinct Key Names & Migration Semantics
+To prevent collisions and enable clean migration between modes, `FlutterSecureStorageService` maintains distinct key names in secure storage:
+- Default / unbound key: `'doc_aes_gcm_key'`
+- OS-bound key: `'doc_aes_gcm_key_os_bound'`
+- Session bearer token: `'auth_bearer_token'`
+
+**Migration Behavior**:
+1. When the app boots in a mode different from when documents were previously saved, `hasMismatchedKey()` detects the key under the alternate name.
+2. In `loadDocuments`, all currently stored documents are re-downloaded and re-encrypted using the active key mode.
+3. Crucially, the mismatched legacy key is deleted via `clearMismatchedKey()` **only after all stored documents have been re-encrypted**. If any step fails, the legacy key is preserved to prevent unrecoverable data loss.
+
+#### `biometryCurrentSet` Invalidation Risk & Automatic Recovery
+- **The Invalidation Risk**: When iOS Keychain items are bound with `AccessControlFlag.biometryCurrentSet`, adding a new fingerprint or altering Face ID enrollment causes the OS to permanently invalidate the cryptographic item. Android Keystore similarly invalidates biometric keys when new fingerprints are enrolled.
+- **Exception Mapping**: Low-level platform exceptions (such as `KeyPermanentlyInvalidatedException`, `-25293` / `errSecItemNotFound`, `biometry set changed`) are caught and mapped by `BiometricKeyProvider` to `BiometricStatus.keyInvalidated`.
+- **Automatic Recovery Flow (`_recoverFromInvalidatedKey`)**:
+  1. The invalidated key is purged from secure storage (`deleteKey()`).
+  2. All outdated local encrypted files are purged from the filesystem (`deleteAllEncryptedDocuments()`).
+  3. A fresh 256-bit AES master key is generated with `Random.secure()` and written to secure storage.
+  4. Active documents are re-fetched from the backend and encrypted under the fresh key.
+  5. The UI surfaces an honest notice to the user: *"Biometric settings changed: stored documents were refreshed."*
 
 ---
 
@@ -63,12 +99,20 @@ However, on iOS, `IOSOptions` only provides accessibility flags (`first_unlock_t
 
 ---
 
-## 4. In-Memory Hygiene & Dart String Immutability
+## 4. In-Memory Hygiene, Form Fields, & Dart String Immutability
 
 ### Plaintext Lifecycle & Disposal
 - Decrypted identity document payloads are held in `DecryptedDocumentNotifier`, a Riverpod state notifier with a nullable state (`DecryptedDocument?`).
 - Plaintext data is managed as `Uint8List` byte buffers.
-- When `DocumentViewerScreen` is disposed, or when the application lifecycle transitions to `AppLifecycleState.inactive`, `paused`, or `hidden`, the notifier clears its state (`state = null`) and overwrites every byte of the managed `Uint8List` with `0x00`.
+- **Synchronous Zeroing on Dispose**: When `DocumentViewerScreen` is disposed, it calls `_viewerNotifier.clearDeferred()`. This wipes the underlying byte buffer synchronously (`current.zeroAndDispose()`, overwriting every byte of `rawBytes` with `0x00`), and defers the Riverpod state reset (`state = null`) to a `Future.microtask`. This prevents modifying provider state during the Flutter widget tree dispose pass.
+- **Synchronous Lifecycle Backgrounding Lock**: When the application lifecycle transitions to `AppLifecycleState.inactive`, `paused`, or `hidden`, `clear()` is invoked synchronously. It overwrites all managed plaintext byte buffers with `0x00` and immediately resets `state = null`. When the app resumes, the screen renders the locked view requiring biometric re-authentication.
+
+### Always-Obscured Password Fields
+- In `LoginScreen` and `CreateAccountScreen`, all password fields (password and confirm-password) have `obscureText: true` hardcoded.
+- There is no compile-time switch or toggle that alters or disables this behavior.
+- The only `fromEnvironment` values read in `mobile/lib/` are:
+  - `API_BASE_URL` (in `lib/core/network/api_client.dart`)
+  - `OS_BOUND_KEY` (in `lib/core/storage/secure_storage_service.dart`)
 
 ### Dart String Immutability Limitation
 In Dart, instances of `String` are immutable objects allocated on the managed garbage-collected heap:
@@ -97,13 +141,24 @@ In Dart, instances of `String` are immutable objects allocated on the managed ga
 
 ---
 
-## 7. Native OS Wallet Passes & Status
+## 7. Native OS Wallet Passes & Architecture
 
-- **Architecture**: The app interfaces with native wallets through `WalletProvisioner` and a `NativeWalletBridge` interface (`GoogleWalletProvisioner` and `AppleWalletProvisioner`).
-- **Native Wallet Status in This Build**: Native OS wallet provisioning is not integrated in this build (`UnavailableNativeWalletBridge`). Calling provision on non-stub passes yields `WalletProvisionUnavailable('Native wallet provisioning is not available in this build')`, and the UI displays this honest status message. The app never reports `WalletProvisionSuccess` without confirmation from a native bridge.
+- **Architecture & Bridges**: The app interfaces with native mobile wallets through `WalletProvisioner` and `PlatformNativeWalletBridge` (`GoogleWalletProvisioner` and `AppleWalletProvisioner`):
+  - On iOS, `PlatformNativeWalletBridge` invokes the `com.example.wallet_app/wallet` `MethodChannel`, handled by `WalletChannelHandler.swift` which delegates to `PKAddPassesViewController`.
+  - On Android, `PlatformNativeWalletBridge` invokes the `add_to_google_wallet` plugin (`com.droidsonroids/loyalty_pass`).
+  - Unsupported platforms (web, desktop) fall back to an unavailable bridge returning `WalletProvisionUnavailable`.
 - **Stub Detection Defense-in-Depth**:
-  - **Apple Pass**: Inspected for the `X-Pass-Stub: true` header OR verified that the `.pkpass` ZIP archive contains a valid `signature` entry. If no `signature` is found in the ZIP archive, the pass is treated as an unsigned stub (`WalletProvisionStubError`).
-  - **Google Pass**: Inspected for the `X-Pass-Stub: true` header, `stub: true` JSON body, OR a JWT header with `alg: none`. Any of these conditions triggers `WalletProvisionStubError`.
+  - Unsigned stub passes are rejected defensively before any native platform channel or plugin call:
+    - **Apple Pass**: Inspected for the `X-Pass-Stub: true` header OR decoded to verify that the `.pkpass` ZIP archive contains a valid `signature` file. If missing, `AppleWalletProvisioner` returns `WalletProvisionStubError`.
+    - **Google Pass**: Inspected for the `X-Pass-Stub: true` header, `stub: true` JSON body, OR a JWT header with `alg: none`. Any of these conditions immediately returns `WalletProvisionStubError`.
+  - When a stub is detected, native channels receive zero invocations, and the UI displays an informative message.
+- **Confirmation Semantics & Exactly-Once Results**:
+  - **iOS Confirmation**: Pass addition is queried via `PKPassLibrary().containsPass(pass)`. It returns `true` (added/confirmed) -> `WalletProvisionSuccess`, `false` (user pressed Cancel) -> `WalletProvisionCancelled`, or `unknown`/`null` -> `WalletProvisionFailure('Pass addition could not be confirmed.')`. The app never reports success without positive confirmation from `PKPassLibrary`.
+  - **Android Confirmation**: Handled via `saveLoyaltyPass` completion listeners (`onSuccess` -> `WalletProvisionSuccess`, `onCanceled` -> `WalletProvisionCancelled`, `onError` -> `WalletProvisionFailure`).
+  - **Cancellation & Busy**: Both `WalletProvisionCancelled` and `WalletProvisionBusy` are modeled as quiet outcomes without disruptive error SnackBars.
+  - **Bridge Timeout**: All native invocations are bounded by a 5-minute timeout (`Duration(minutes: 5)`), returning `WalletProvisionFailure('Pass provisioning timed out waiting for the wallet.')`. Late callbacks from the OS are safely dropped without throwing double-completion errors.
+- **Physical Device & Credential Constraints**:
+  - Real signed passes and real out-of-process OS presentation sheets have **not been verified on physical hardware devices**. Real verification requires active Apple Developer Program and Google Wallet Console credentials.
 
 ---
 
@@ -125,29 +180,52 @@ In Dart, instances of `String` are immutable objects allocated on the managed ga
 
 - **iOS Simulator Base URL**: `http://localhost:3000` (shares macOS host network namespace directly).
 - **Android Emulator Base URL**: `http://10.0.2.2:3000` (routes to host `127.0.0.1:3000`).
-- **Production URL**: Strict `https://` required in release mode.
+- **Production URL**: Strict `https://` required in release mode (`kReleaseMode`).
 - **Run Flags**:
   - `flutter run -d <device-id> --dart-define=API_BASE_URL=<url>`
-- **Integration Test Flags**:
-  - `flutter test integration_test -d <device-id> --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=QA_EMAIL=<email> --dart-define=QA_PASSWORD=<password>`
+  - `flutter run -d <device-id> --dart-define=API_BASE_URL=<url> --dart-define=OS_BOUND_KEY=true`
+- **Integration Test Execution**:
+  - One-command automated runner: `mobile/tool/run_integration_test.sh`
+  - Manual execution: `flutter test integration_test -d <device-id> --dart-define=API_BASE_URL=http://localhost:3170 --dart-define=QA_EMAIL=<email> --dart-define=QA_PASSWORD=<password>`
 
 ---
 
 ## 11. Security Verification Matrix: Verified vs. Unverified
 
-### Verified by Automated Tests
-- **Crypto & Envelope v2**: AES-256-GCM encryption/decryption, unique 12-byte IV per write, 16-byte authentication tag, AAD document ID binding (`wallet-doc:v2:$documentId`), rejection of tampered ciphertext/tag/IV, rejection of legacy v1 envelopes, and zeroing of key byte arrays in memory (`Uint8List.fillRange(0, length, 0)`).
+### 1. Verified by Automated Unit and Widget Tests
+- **Crypto & Envelope v2**: AES-256-GCM encryption and decryption, unique 12-byte IV per operation, 16-byte authentication tag, AAD document ID binding (`wallet-doc:v2:$documentId`), rejection of tampered ciphertext/tag/IV, rejection of legacy v1 envelopes, and zeroing of key byte arrays in memory (`Uint8List.fillRange(0, length, 0)`).
 - **Filesystem Traversal Defense**: Strict document ID regex validation (`^[A-Za-z0-9_-]{1,128}$`), blocking directory traversal attacks (`../`, `/`, `\`). Envelopes written to Application Support directory.
-- **Plaintext Confidentiality on Disk**: Covered only by the unit tests of the crypto service and file storage. The simulator integration test that would also inspect real on-disk bytes (`integration_test/`) has been written but has not completed a run yet, so it is not counted as verification.
-- **In-Memory Hygiene & Lifecycle Wipe**: `DecryptedDocumentNotifier` resets to null and zeroes underlying bytes on widget disposal, navigation pop, or when the application transitions to `AppLifecycleState.paused` (backgrounded).
+- **Safe Key Migration**: `hasMismatchedKey()` detects cross-mode keys; re-encrypts all stored documents before deleting the old key via `clearMismatchedKey()`.
+- **Invalidated Key Recovery**: Detects key invalidation exceptions (`KeyPermanentlyInvalidatedException`, `-25293`, etc.), purges invalidated key and local files, writes fresh key, re-downloads issued documents, and surfaces user notice.
+- **In-Flight Load Serialization**: Concurrent `loadDocuments` calls reuse the active Future.
+- **Native Wallet Bridge Logic**: Stub rejection (Apple ZIP missing signature / `X-Pass-Stub`; Google `alg: none` / `X-Pass-Stub`), platform channel result mapping (`true` -> Success, `false` -> Cancelled, `busy` -> Busy, timeout -> Failure), 5-minute timeout with late callback immunity, UI debounce (two rapid taps invoke provision once).
+- **Obscured Form Fields**: Unit/widget tests assert `obscureText: true` on login and registration password fields with zero disabling switches.
+- **In-Memory Hygiene & Lifecycle Wipe**: `DecryptedDocumentNotifier` zeroes byte buffers synchronously and defers state reset on widget disposal; resets state and zeroes buffers immediately on lifecycle `inactive`, `paused`, or `hidden`.
 - **Authentication & Atomic Storage**: Token and key generation on sign-in/sign-up are atomic; failure deletes the token. Full logout purges token, key from Keystore/Keychain, and deletes all local `.enc` files.
 
-### NOT Verified by Automated Tests (Platform Limitations)
-- **Real Face ID / Android BiometricPrompt Hardware**: Automated tests run on iOS Simulator using a controllable fake biometric service. Hardware-backed Secure Enclave / TEE authentication, actual Face ID camera capture, and OS lockout policies require physical device testing.
+### 2. Verified on iOS Simulator by Integration Test
+The end-to-end integration test (`mobile/integration_test/e2e_faked_biometrics_simulator_test.dart`) has completed real automated runs on an iOS 18.3 simulator against a private backend instance. It asserts:
+1. **Live Authentication**: Signs in with QA credentials against the live backend (`POST /api/auth/sign-in/email`).
+2. **Automatic Encrypted Storage**: Newly fetched document is automatically encrypted with AES-256-GCM and saved to Application Support as `.enc` envelope v2 (`0x02`); on-disk bytes are verified to contain zero occurrences of the plaintext holder name (`QA User`).
+3. **Biometric Gate Rejection**: When controllable biometrics return false, tapping "View Document" keeps the viewer unopened, leaves the decrypted notifier null, and displays no plaintext.
+4. **Offline Viewing Without Network Calls**: With network traffic disabled via `ToggleableHttpClient` throwing socket exceptions, granting biometrics decrypts the document, renders decrypted claims ('Full Name', 'QA User'), updates the notifier, and verifies 0 HTTP requests.
+5. **Route Pop Zeroing**: Returning from `DocumentViewerScreen` via the back button resets the decrypted document notifier to null.
+6. **Lifecycle Inactivity Wipe**: Reopening the document and dispatching `AppLifecycleState.paused` immediately clears decrypted document buffers in memory; resuming displays the "Document Locked" view.
+7. **Biometric Re-Unlock While Offline**: Re-unlocking while offline verifies rejection maintains the lock, while grant decrypts and displays fields with 0 network calls.
+8. **Session Purge on Sign Out**: Tapping Sign Out purges the bearer token and master encryption key from secure storage, and deletes all `.enc` files from disk.
+9. **User Registration**: Navigates to Create Account, registers a new user with a unique timestamped email, verifies immediate sign-in, token persistence, and key creation, followed by clean sign-out.
+
+### 3. Compiled but NOT Run on Physical Devices
+- `PlatformNativeWalletBridge` and `WalletChannelHandler.swift` compile for iOS Simulator.
+- Android debug build compiles with `com.google.android.gms.wallet.api.enabled` in `AndroidManifest.xml`.
+- `OS_BOUND_KEY=true` compile-time mode with `AccessControlFlag.biometryCurrentSet` / `userPresence` on iOS and `AndroidOptions.biometric` on Android compiles cleanly in test harnesses, but has not been run or validated on physical device hardware.
+
+### 4. NOT Verified (Platform Limitations)
+- **Real Face ID / Android BiometricPrompt Hardware**: Automated tests run on iOS Simulator using a controllable fake biometric service. Hardware-backed Secure Enclave / Keymaster TEE authentication, actual Face ID camera capture, and OS biometric lockout policies require physical device testing.
 - **Android `FLAG_SECURE`**: Enabled in `MainActivity.kt` to blank out the app in recent task switchers and prevent screenshots, but OS window compositor behavior cannot be verified within the Flutter test process.
-- **iOS App Switcher Privacy Snapshot Cover**: `SceneDelegate.swift` and `AppDelegate.swift` present a privacy overlay when resigning active, but the OS-level application switcher thumbnail capture cannot be tested through Flutter driver assertions.
-- **Backup Exclusion (`NSURLIsExcludedFromBackupKey`)**: The native channel applies the backup exclusion flag to the support directory, but actual exclusion from iCloud and iTunes backups can only be verified during an OS backup cycle.
-- **Real Native Apple/Google Wallet Modal Sheets**: Pass presentation sheets are displayed out-of-process by system services (`PassKit` / Google Play Services) and cannot be inspected by Flutter widget/integration tests.
+- **iOS App Switcher Privacy Snapshot Cover**: `SceneDelegate.swift` and `AppDelegate.swift` present a privacy overlay when resigning active, but OS application switcher thumbnail capture cannot be tested through Flutter driver assertions.
+- **Backup Exclusion (`NSURLIsExcludedFromBackupKey`)**: Native channel applies the backup exclusion flag to the support directory, but actual exclusion from iCloud and iTunes backups can only be verified during an OS backup cycle.
+- **Real Native Apple/Google Wallet Modal Sheets**: Out-of-process system sheets cannot be automated in test harnesses. Real signed passes require production Apple/Google signing credentials.
 
 ---
 
@@ -157,7 +235,8 @@ In Dart, instances of `String` are immutable objects allocated on the managed ga
   1. `pass.json`: The pass model definition.
   2. `manifest.json`: SHA hashes of all files in the archive.
   3. `signature`: A cryptographic PKCS#7 signature produced by an Apple Pass Type ID certificate and private key.
-- **Entitlements**: The iOS application must be provisioned with the `com.apple.developer.pass-type-identifiers` entitlement matching the Pass Type ID.
-- **Development Backend Stubs**: The backend currently serves unsigned pass stubs indicated by the `X-Pass-Stub: true` header and lack of a `signature` archive entry.
+- **Signed Mode vs. Stub Mode**:
+  - **Signed Pass Mode**: When server credentials (`APPLE_PASS_TYPE_ID`, `APPLE_TEAM_ID`, `APPLE_PASS_CERT_PATH`, `APPLE_PASS_KEY_PATH`, `APPLE_WWDR_CERT_PATH`) are configured in `backend/.env`, the backend generates cryptographically signed `.pkpass` bundles (`X-Pass-Stub: false`) with detached PKCS#7 signatures created via `pkijs` and `asn1js`. Pass content is minimal (holder name, document number, license classes, expiry date).
+  - **Development Stubs**: When credentials are not configured, the backend serves unsigned pass stubs indicated by the `X-Pass-Stub: true` header and lack of a `signature` archive entry.
 - **Defensive Handling**: `WalletProvisioner` and `AppleWalletProvisioner` inspect incoming passes, detect unsigned stubs, and return `WalletProvisionStubError`, displaying a clear error message in the UI instead of attempting to load invalid bundles into `PassKit`.
 
