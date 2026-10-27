@@ -38,6 +38,15 @@ rm -rf "$TMP_DIR"
 - `--keep-simulator`: Prevents deletion of the created simulator upon test completion.
 - `--timeout <seconds>`: Overall execution timeout enforced by a process alarm (default: `900` seconds / 15 minutes).
 - `MOBILE_DIR`: Environment variable specifying the mobile project root directory (default: `mobile/` in repo).
+- `SIM_RUNTIME`: Environment variable specifying the simulator runtime identifier (default: newest installed iOS runtime, which the runner detects and prints; the test suite was verified on `iOS 18.3` / `com.apple.CoreSimulator.SimRuntime.iOS-18-3`).
+
+### Process Lifecycle and Cleanup
+
+The runner manages processes and test assets safely:
+- Traps `EXIT`, `INT`, `TERM`, `HUP`, and `ALRM` signals.
+- Terminates the private NestJS backend process strictly by recorded PID (`$BACKEND_PID`) via `kill -TERM` and waits for clean process exit.
+- Shuts down and deletes the temporary iOS simulator by UDID if created by the script (unless `--keep-simulator` is passed).
+- Removes temporary database files and runner logs.
 
 ## What Is Proven by This Test
 

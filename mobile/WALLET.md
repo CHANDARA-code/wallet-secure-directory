@@ -2,7 +2,7 @@
 
 ## 1. Overview & Architecture
 
-The mobile wallet feature connects Flutter identity documents to native mobile wallets (Apple Wallet on iOS via PassKit and Google Wallet on Android via Google Play Services).
+The mobile wallet feature connects Flutter identity documents to native mobile wallets (Apple Wallet on iOS via PassKit and Google Wallet on Android via Google Play Services). For local document encryption, biometric gating, and key lifecycle specifications, see [`SECURITY.md`](SECURITY.md).
 
 ### Bridge Hierarchy & Abstractions
 - **`NativeWalletBridge`**: The core interface in `lib/features/wallet/wallet_provisioner.dart` defining:
@@ -10,8 +10,8 @@ The mobile wallet feature connects Flutter identity documents to native mobile w
   - `Future<WalletProvisionResult> addApplePass(Uint8List passBytes)`
   - `Future<WalletProvisionResult> addGooglePass(String jwt)`
 - **`PlatformNativeWalletBridge`**: The production implementation. It directs calls to the iOS `MethodChannel` (`com.example.wallet_app/wallet`) on iOS devices and to the `add_to_google_wallet` plugin (`com.droidsonroids/loyalty_pass`) on Android devices.
-- **`UnavailableNativeWalletBridge`**: Fallback bridge used for unsupported platforms (web, desktop) or when native provisioning is disabled.
-- **`nativeWalletBridgeProvider`**: Riverpod provider returning `PlatformNativeWalletBridge` on iOS and Android, and `UnavailableNativeWalletBridge` elsewhere.
+- **Unsupported-Platform Fallback Bridge**: Fallback bridge implementation used for unsupported platforms (web, desktop) or when native provisioning is disabled, returning `WalletProvisionUnavailable`.
+- **`nativeWalletBridgeProvider`**: Riverpod provider returning `PlatformNativeWalletBridge` on iOS and Android, and an unavailable fallback bridge elsewhere.
 - **`GoogleWalletProvisioner` & `AppleWalletProvisioner`**: High-level provisioners coordinating backend pass retrieval (`ApiClient`), stub verification, availability checks, and native delegation.
 
 ---
@@ -175,8 +175,10 @@ Apple Wallet strictly requires every `.pkpass` bundle to be a ZIP archive contai
 
 ## 7. Verification Matrix: Verified vs. Unverified
 
+For the broader cryptographic, storage, and platform security matrix, see [`SECURITY.md`](SECURITY.md#11-security-verification-matrix-verified-vs-unverified).
+
 ### Verified by Automated Tests & Compiler Proofs
-- **All Unit & Widget Tests Pass**: 97 tests pass cleanly via `flutter test --no-pub`.
+- **Unit & Widget Tests**: Test suites pass cleanly via `flutter test`.
 - **Platform Channel Dispatch**: Faked channel tests verify:
   - Confirmed `true` -> `WalletProvisionSuccess`.
   - User cancelled `false` -> `WalletProvisionCancelled`.
