@@ -15,8 +15,8 @@ The solution consists of:
 The core lifecycle of an identity credential follows a 4-phase flow:
 1. **Request & Dual Payload**: The authenticated client requests identity credentials and receives both the raw verifiable document claims and native wallet pass metadata.
 2. **In-App AES-256-GCM Encryption**: The mobile client encrypts the raw document using a device-generated AES-256-GCM key stored with `flutter_secure_storage` (Android Keystore-backed storage / iOS Keychain), bound to the document identifier with Additional Authenticated Data (AAD).
-3. **Native Wallet Provisioning**: The client inspects pass bundles from the backend and surfaces pass provisioning state.
-4. **Offline Biometric Viewing**: Viewing decrypted credentials requires a `local_auth` biometric check in app code before the key is read. This is an app-level gate, not an OS-enforced key binding (see Status and limitations).
+3. **Native Wallet Provisioning**: The client inspects pass bundles from the backend. Unsigned stubs are rejected defensively before any native invocation with an honest notice; passes that look signed invoke native presentation sheets (Apple Wallet via PassKit on iOS, Google Wallet on Android).
+4. **Offline Biometric Viewing**: Viewing decrypted credentials requires a `local_auth` biometric check in app code before the key is read. This is an app-level gate by default unless built with OS-bound key release (see Status and limitations and `mobile/SECURITY.md`).
 
 ```mermaid
 sequenceDiagram
@@ -57,10 +57,15 @@ sequenceDiagram
     Note over User,Wallet: Phase 3: Native Wallet Provisioning
     User->>Mobile: Tap "Add to Apple / Google Wallet"
     Mobile->>Backend: GET /api/documents/:id/pass/(apple|google)
-    Backend-->>Mobile: 200 OK (X-Pass-Stub: true, pkpass ZIP or JWT)
-    Mobile->>Mobile: Inspect pass headers, signatures, and JWT alg
-    Mobile->>Wallet: Provision pass bundle (Stub / unavailable bridge)
-    Mobile-->>User: Display honest provisioning notice (unsigned stub)
+    Backend-->>Mobile: 200 OK (Signed bundle or unsigned stub)
+    Mobile->>Mobile: Inspect pass headers, ZIP signature, and JWT alg
+    alt Pass is an unsigned stub
+        Mobile-->>User: Display honest stub notice (native call skipped)
+    else Pass is signed
+        Mobile->>Wallet: Present native wallet sheet (PassKit / Google Wallet)
+        Wallet-->>Mobile: Confirmation result (success / cancel / failure)
+        Mobile-->>User: Surface outcome (SnackBar on success/failure; quiet on cancel)
+    end
     end
 
     %% Phase 4: Offline Biometric Viewing
@@ -137,9 +142,13 @@ wallet-secure-directory/
 ├── mobile/                        # Flutter mobile application
 │   ├── lib/                       # Riverpod state, UI screens, crypto & storage services
 │   ├── test/                      # Flutter unit and widget tests
+│   ├── tool/                      # Automation scripts (run_integration_test.sh)
+│   ├── integration_test/          # End-to-end simulator integration test suite & README.md
 │   ├── android/                   # Android native project configuration
 │   ├── ios/                       # iOS native project configuration
 │   ├── SECURITY.md                # Security architecture & cryptographic specifications
+│   ├── WALLET.md                  # Native wallet provisioning architecture & contracts
+│   ├── README.md                  # Mobile setup, execution flags & testing guide
 │   └── pubspec.yaml
 └── docs/                          # Specifications and reviews
     ├── API_CONTRACT.md            # Canonical API wire contract
@@ -315,17 +324,73 @@ Refer to [`backend/.env.example`](backend/.env.example) for baseline configurati
 > In production (`NODE_ENV=production`), `TRUST_PROXY_HOPS` **must be set explicitly** (e.g., `1` when behind Cloudflare, Nginx, or an AWS ALB; `0` if directly exposed).
 > **Consequence of misconfiguration**: If set to `0` while operating behind a reverse proxy, rate-limiting algorithms key on the reverse proxy socket IP instead of downstream client IPs. This collapses all end-users into a single IP bucket, triggering collective client lockouts.
 
+### Optional Signed Wallet Pass Configuration
+
+The backend supports generating cryptographically signed Apple Wallet `.pkpass` bundles and Google Wallet JWT passes when platform credentials are configured in `backend/.env`. When omitted, endpoints fall back to unsigned development stubs (`X-Pass-Stub: true` on Apple, `alg: none` on Google).
+
+Credentials use **all-or-nothing groups**: if any variable in a group is set, all required variables in that group must be provided and file paths must be readable; otherwise, application boot validation fails.
+
+#### Apple Wallet Pass Signing (PKCS#7 detached signature via `pkijs` and `asn1js`)
+
+| Variable | Required for Signed Mode | Example Placeholder | Description |
+| :--- | :---: | :--- | :--- |
+| `APPLE_PASS_TYPE_ID` | Yes | `pass.com.example.wallet` | Registered Apple Pass Type Identifier. |
+| `APPLE_TEAM_ID` | Yes | `TEAMID1234` | Apple Developer Team ID. |
+| `APPLE_PASS_CERT_PATH` | Yes | `./certs/apple-pass-cert.pem` | Path to Apple Pass Type ID X.509 certificate PEM file. |
+| `APPLE_PASS_KEY_PATH` | Yes | `./certs/apple-pass-key.pem` | Path to private key PEM matching the certificate. |
+| `APPLE_WWDR_CERT_PATH` | Yes | `./certs/apple-wwdr.pem` | Path to Apple Worldwide Developer Relations (WWDR) certificate PEM file. |
+| `APPLE_PASS_KEY_PASSPHRASE` | No | `example-passphrase` | Decryption passphrase if the private key is encrypted. |
+| `APPLE_PASS_ORGANIZATION` | No | `Secure Identity Wallet` | Organization name displayed on the pass (defaults to `Secure Identity Wallet`). |
+
+- **Boot-time Validation**: `PassSigningService.onModuleInit()` validates X.509 certificate validity dates (`notBefore` and `notAfter`), throwing on startup if expired or not-yet-valid, and warning if expiring within 30 days. It verifies that the private key matches the signer certificate (`checkPrivateKey`), decrypts with passphrase if specified, and validates the WWDR certificate.
+- **Pass Fields**: Issued passes include minimal claims: holder full name, document number, license classes, and expiry date (omits date of birth and residential address).
+
+#### Google Wallet Pass Signing (RS256 JWT)
+
+| Variable | Required for Signed Mode | Example Placeholder | Description |
+| :--- | :---: | :--- | :--- |
+| `GOOGLE_WALLET_ISSUER_ID` | Yes | `1234567890123456789` | Google Pay & Wallet Console Issuer ID. |
+| `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL` | Yes | `wallet-sa@project.iam.gserviceaccount.com` | Google Cloud Service Account email. |
+| `GOOGLE_WALLET_PRIVATE_KEY_PATH` | Yes | `./certs/google-wallet-private-key.pem` | Path to RSA private key PEM file for JWT signing. |
+| `GOOGLE_WALLET_CLASS_SUFFIX` | No | `identity_wallet` | Class identifier suffix (combined with Issuer ID). |
+| `GOOGLE_WALLET_ORIGINS` | No | `https://wallet.example.com` | Comma-delimited list of allowed web origins. |
+
+- **Boot-time Validation**: Validates that the private key exists, is readable, and loads key material for RS256 JWT signing.
+- **Pass Fields**: Generic pass objects include minimal claims: holder full name, document number, license classes, and expiry date (omits date of birth and residential address).
+
 ---
 
-## Verification & Test Commands
+## How the Tests Run
 
-Every component in the repository has dedicated test suites:
+Every component in the repository has dedicated automated test suites. None of the test runners require a pre-configured database service:
 
-| Project | Command | Framework |
-| :--- | :--- | :--- |
-| **Backend** | `cd backend && npm run typecheck && npm test` | Vitest (e2e against a temporary SQLite database, plus unit tests) |
-| **Admin** | `cd admin && npm test` | Vitest + Testing Library |
-| **Mobile** | `cd mobile && flutter analyze && flutter test` | Flutter Test (unit and widget tests with fakes) |
+- **Backend**:
+  ```bash
+  cd backend
+  npm test
+  ```
+  `npm test` automatically triggers `pretest` (`nest build`) first to verify TypeScript compilation, then runs Vitest (`vitest run`). Tests include e2e API routes against a temporary SQLite database in WAL mode and unit tests for signed passes, tamper detection, stubs, and boot credentials validation. Typechecking can be run separately via `npm run typecheck`.
+
+- **Admin Portal**:
+  ```bash
+  cd admin
+  npm test
+  ```
+  Executes Vitest (`vitest run`) with React Testing Library, testing admin user management, document issuance modals, revocation flows, and API client proxies. Production bundling and type checks run via `npm run build`.
+
+- **Mobile Unit & Widget Tests**:
+  ```bash
+  cd mobile
+  flutter analyze
+  flutter test
+  ```
+  Runs Dart static analysis and Flutter unit/widget tests. Covers AES-256-GCM encryption/decryption, envelope v2 validation, AAD binding, path traversal defenses, key migration, invalidation recovery, UI debounce, and lifecycle memory zeroing.
+
+- **Mobile Simulator Integration Tests**:
+  ```bash
+  mobile/tool/run_integration_test.sh
+  ```
+  An automated one-command runner that bootstraps a private backend on an isolated port (default: 3170) with a dedicated database and seed data, boots an iOS simulator, and executes the complete security integration test (`e2e_faked_biometrics_simulator_test.dart`). On exit or termination, the runner performs PID-based cleanup of the backend and deletes temporary simulators and databases. Inspect options via `mobile/tool/run_integration_test.sh --help`.
 
 ---
 
@@ -346,8 +411,8 @@ The canonical contract for all endpoints is maintained in [`docs/API_CONTRACT.md
 - **Identity Document Endpoints (`/api/documents`)**:
   - `GET /api/documents`: List user's active, non-revoked identity documents.
   - `GET /api/documents/:id`: Retrieve raw JSON claims of a specific document for mobile encryption.
-  - `GET /api/documents/:id/pass/apple`: Download Apple `.pkpass` bundle (carries `X-Pass-Stub: true`).
-  - `GET /api/documents/:id/pass/google`: Retrieve Google Wallet save URL & JWT (stub payload).
+  - `GET /api/documents/:id/pass/apple`: Download Apple `.pkpass` bundle (signed PKCS#7 package when configured; unsigned stub with `X-Pass-Stub: true` otherwise).
+  - `GET /api/documents/:id/pass/google`: Retrieve Google Wallet save URL & JWT (signed RS256 JWT when configured; unsigned stub with `alg: none` otherwise).
 - **Administrative Endpoints (`/api/admin`)** *(Requires `role: "admin"`)*:
   - `GET /api/admin/users`: Paginated list of users with active document counts.
   - `GET /api/admin/documents`: Paginated list of issued documents across all users.
@@ -360,20 +425,25 @@ The canonical contract for all endpoints is maintained in [`docs/API_CONTRACT.md
 
 To maintain full engineering transparency, the following constraints and current implementation limitations are explicitly documented:
 
-1. **Unsigned Wallet Pass Stubs**:
-   - The Apple Wallet pass endpoint (`/api/documents/:id/pass/apple`) generates a zipped `.pkpass` bundle containing `pass.json` and `manifest.json`, but **does not contain a cryptographic signature**. Real Apple Wallet pass signing requires an active Apple Developer Team Account, a registered Pass Type ID certificate, and the Apple Worldwide Developer Relations (WWDR) intermediate certificate chain.
-   - The Google Wallet pass endpoint (`/api/documents/:id/pass/google`) outputs a stub JWT using unsigned header `alg: none`. Real Google Wallet pass provisioning requires an approved Google Pay & Wallet Console Issuer ID and an authorized Google Cloud Service Account with credentials.
-   - The mobile application's native wallet bridge is currently an `UnavailableNativeWalletBridge` and detects stubs via `X-Pass-Stub: true`, absent zip signatures, or `alg: none`, honestly presenting this limitation to the user.
+1. **Wallet Pass Signing & Unsigned Development Stubs**:
+   - When platform credentials (`APPLE_*` and `GOOGLE_*`) are configured, the backend generates cryptographically signed `.pkpass` bundles and RS256-signed JWTs.
+   - When credentials are not configured, the endpoints generate unsigned development stubs (`X-Pass-Stub: true`, `alg: none`).
+   - The mobile application's native wallet provisioner inspects pass payloads and rejects unsigned stubs defensively before calling any native channel (`WalletProvisionStubError`), displaying an honest notice to the user.
+   - For passes that look signed, the mobile app invokes native sheets via `PlatformNativeWalletBridge` (PassKit `WalletChannelHandler.swift` on iOS, `add_to_google_wallet` on Android), but out-of-process system sheets have not been verified on physical hardware.
 2. **App-Level Biometric Gating vs. OS-Bound Keys**:
-   - As detailed in [`mobile/SECURITY.md`](mobile/SECURITY.md), the biometric gate in the mobile app is implemented via `local_auth` in Flutter Dart code (`biometricOnly: true`).
-   - The symmetric key stored in Android Keystore / iOS Keychain is **not hardware-bound** to the biometric state via OS-level primitives (`KeyGenParameterSpec.setUserAuthenticationRequired(true)` on Android or `SecAccessControl` with `kSecAccessControlBiometryCurrentSet` on iOS). A compromised device (e.g. rooted/jailbroken) could theoretically bypass the Dart application-level boolean check.
+   - By default (`OS_BOUND_KEY=false`), the biometric gate in the mobile app is implemented via `local_auth` in Flutter Dart code (`biometricOnly: true`). The symmetric key stored in Android Keystore / iOS Keychain is not hardware-bound to the biometric state by the OS.
+   - An opt-in mode `--dart-define=OS_BOUND_KEY=true` configures `flutter_secure_storage` to enforce OS-level biometric release (`biometryCurrentSet` + `userPresence` on iOS Keychain; `AndroidOptions.biometric` on Android) with key migration and invalidation recovery, but this mode is unverified on physical hardware.
 3. **Hardware-Level Security Testing Limitations**:
-   - Security features including biometric authentication, Android `WindowManager.LayoutParams.FLAG_SECURE` screen recording prevention, iOS `SceneDelegate` privacy snapshot overlays, and native wallet presentation sheets were verified in automated unit test suites and simulators/emulators, but **have not yet been validated on physical production hardware**.
+   - Security features including biometric authentication, Android `WindowManager.LayoutParams.FLAG_SECURE` screen recording prevention, iOS `SceneDelegate` privacy snapshot overlays, and native wallet presentation sheets were verified in automated unit test suites and simulator environments, but **have not yet been validated on physical production hardware**.
 4. **Android Release Build Signing Key**:
    - In `mobile/android/app/build.gradle.kts`, the `release` build type currently inherits the debug signing configuration (`signingConfigs.getByName("debug")`). A dedicated production release keystore and environment-driven CI signing workflow must be established prior to public Play Store distribution.
 5. **Open Registration & Unverified Email**:
    - User sign-up (`POST /api/auth/sign-up/email`) is open and there is no email verification, so any email address can register an account. `better-auth`'s built-in rate limiter is enabled only when `NODE_ENV=production`; development has none. A real deployment needs email verification and a decision on who may register.
-6. **Known dependency advisories**:
-   - `npm audit --omit=dev` in `backend/` reports `multer` (pulled in by `@nestjs/platform-express`; no route in this code uses file uploads) and `esbuild` inside `drizzle-kit` (development servers only). The suggested automatic fixes are downgrades, so they are not applied.
-7. **Placeholder identity**:
+6. **Known Dependency Advisories**:
+   - Running `cd backend && npm audit --omit=dev` reports 7 vulnerabilities (4 moderate, 3 high):
+     - `esbuild <=0.24.2` (moderate severity, GHSA-67mh-4wv8-2f99): pulled in via `@esbuild-kit/core-utils` under `drizzle-kit`. Unreachable in production runtime.
+     - `multer 2.0.0 - 2.4.0` (high severity, GHSA-q7qp-rjg7-q26m): pulled in via `@nestjs/platform-express` under `@nestjs/core`. Unreachable in production runtime as no route handles file or multipart uploads.
+     - `node-forge` is no longer present in the codebase; it was replaced by `pkijs` and `asn1js`.
+   - The suggested automatic fixes are breaking downgrades, so they are not applied.
+7. **Placeholder Identity**:
    - The mobile app id is the Flutter default `com.example.wallet_app` and the repository has no license file yet.
