@@ -8,3 +8,17 @@ dist/
 data/
 *.tsbuildinfo
 .DS_Store
+certs/
+secrets/
+*.pem
+*.p12
+*.pfx
+*.p8
+*.key
+*.cer
+*.crt
+*.csr
+*.jks
+*.keystore
+*.mobileprovision
+service-account*.json
